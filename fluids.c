@@ -28,34 +28,48 @@ rfftwnd_plan plan_rc, plan_cr;  //simulation domain discretization
 
 
 //--- VISUALIZATION PARAMETERS ---------------------------------------------------------------------
-int   winWidth, winHeight;      //size of the graphics window, in pixels
-float vec_scale = 1000;			//scaling of hedgehogs
-#define COLOR_BLACKWHITE 0   //different types of color mapping: black-and-white, rainbow, banded
+int   winWidth, winHeight;      									//size of the graphics window, in pixels
+float vec_scale = 1000;												//scaling of hedgehogs
+#define COLOR_BLACKWHITE 0   										//different types of color mapping: black-and-white, rainbow, banded
 #define COLOR_RAINBOW 1
 #define COLOR_SAT 2
-#define SHOW_DENSITY 0
-#define SHOW_VELOCITY_MAGNITUDE 1
-#define SHOW_FORCE_MAGNITUDE 2
 #define V_SCALE_FACTOR 50
 #define F_SCALE_FACTOR 30
-#define SMOKE_TYPE 0
+#define MATTER_TYPE 0
 #define GLYPH_TYPE 1
 #define LEGEND_TYPE 2  
-bool draw_smoke = 0;           									//draw the smoke or not
-bool draw_vecs = 1;            									//draw the vector field or not
-unsigned short int scalar_color_type = COLOR_BLACKWHITE;        //method for smoke coloring
-unsigned short int glyph_color_type = COLOR_BLACKWHITE;         //method for force&velocity coloring
-bool frozen = FALSE;               								//toggles on/off the animation
-unsigned int color_bands = 2;
-unsigned short int show_attribute = SHOW_DENSITY;
-bool enable_hsv = FALSE;
-float scale_h = 0, scale_s = 0, scale_v = 0;
-bool scalar_scale = FALSE;
-float scale_lmin = 0, scale_lmax = 0;
-bool scalar_clamp = FALSE;
-float clamp_lmin = 0, clamp_lmax = 0;
+#define SCALAR 0
+#define VECTORIAL 1
+bool frozen = FALSE;   												//toggles on/off the animation
 
+//scalar-related global data: matter
+#define SHOW_DENSITY 0												//smoke attributes encoding
+#define SHOW_VELOCITY_MAGNITUDE 1
+#define SHOW_FORCE_MAGNITUDE 2
+bool draw_matter = 0;           									//draw the smoke (1) or not (0)
+unsigned short int matter_color_type = COLOR_BLACKWHITE;        	//default method for smoke attributes coloring
+unsigned int matter_color_bands = 2;								//default number of color bands
+unsigned short int show_matter_attribute = SHOW_DENSITY;					//default shown attribute
+bool matter_enable_hsv = FALSE;										//default hsv colormap
+float matter_scale_h = 0, matter_scale_s = 0, matter_scale_v = 0;	//amount by which h,s,v are increased
+bool matter_scale = FALSE;											//default colormap scaling
+float matter_scale_lmin = 0, matter_scale_lmax = 0;					//the limits of the interval to be scaled
+bool matter_clamp = FALSE;											//default colormap clamping
+float matter_clamp_lmin = 0, matter_clamp_lmax = 0;					//the limits to which a value is clamped
 
+//vector-related global data: glyphs
+#define SHOW_VELOCITY 0
+#define SHOW_FORCE 1
+bool draw_vecs = 1;            										//draw the vector field or not
+unsigned short int glyph_color_type = COLOR_BLACKWHITE;         	//method for force&velocity coloring
+unsigned int glyph_color_bands = 2;									//default number of color bands
+unsigned short int show_glyph_attribute = SHOW_VELOCITY;
+bool glyph_enable_hsv = FALSE;										//default hsv colormap
+float glyph_scale_h = 0, glyph_scale_s = 0, glyph_scale_v = 0;		//amount by which h,s,v are increased
+bool glyph_scale = FALSE;											//default colormap scaling
+float glyph_scale_lmin = 0, glyph_scale_lmax = 0;					//the limits of the interval to be scaled
+bool glyph_clamp = FALSE;											//default colormap clamping
+float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;					//the limits to which a value is clamped
 
 //------ SIMULATION CODE STARTS HERE -----------------------------------------------------------------
 
@@ -301,13 +315,25 @@ void red_saturation(float value, float *R, float *G, float *B)
 }
 
 //this is like dividing the interval [0;1] (which is considered in every coloring function)
-//in a number of subintervals equal to "color_bands" and assign a color for each head of every interval
-//color_bands = 2 => 3 colors, only RGB; color_bands = 4 => 5 colors, one between R and G (yellow) the other one between B and G (bright blue)
-float set_color_bands(float value)
+//in a number of subintervals equal to "bands" and assign a color for each head of every interval
+//bands = 2 => 3 colors, only RGB; bands = 4 => 5 colors, one between R and G (yellow) the other one between B and G (bright blue)
+float set_color_bands(float value, unsigned short int type)
 {
-	value *= color_bands;
+	unsigned short int bands;
+	
+	if(type == SCALAR)
+	{
+		bands = matter_color_bands;
+	}
+	
+	if(type == VECTORIAL)
+	{
+		bands = glyph_color_bands;
+	}
+	
+	value *= bands;
 	value = (int)(value);
-	return value/color_bands;
+	return value/bands;
 }
 
 //convert from rgb to hsv. Taken from the book, section 3.6.3
@@ -400,49 +426,49 @@ void set_colormap(float scalar_value)
 	float r, g, b, h, s, v;
 
 	//apply color scalling. scale_lmin and scale_lmax are set by the user. The interval [0;1] is scaled to the user-inserted interval
-	if(scalar_scale)
+	if(matter_scale)
 	{
-		scalar_value = set_scale(scalar_value, scale_lmin, scale_lmax, 0, 1);
+		scalar_value = set_scale(scalar_value, matter_scale_lmin, matter_scale_lmax, 0, 1);
 	}
 	
 	//apply clamping. clamp_lmin and clamp_lmax are set by the user
-	if(scalar_clamp)
+	if(matter_clamp)
 	{
-		if(scalar_value < clamp_lmin)
+		if(scalar_value < matter_clamp_lmin)
 		{
-			scalar_value = clamp_lmin;
+			scalar_value = matter_clamp_lmin;
 		}
 		
-		if(scalar_value > clamp_lmax)
+		if(scalar_value > matter_clamp_lmax)
 		{
-			scalar_value = clamp_lmax;
+			scalar_value = matter_clamp_lmax;
 		}
 	}
 
 	//apply color bands
-	scalar_value = set_color_bands(scalar_value);
+	scalar_value = set_color_bands(scalar_value, SCALAR);
 
-	if (scalar_color_type == COLOR_BLACKWHITE)
+	if (matter_color_type == COLOR_BLACKWHITE)
 	{
 		grayscale(scalar_value, &r, &g, &b);
 	}
-	else if (scalar_color_type == COLOR_RAINBOW)
+	else if (matter_color_type == COLOR_RAINBOW)
 	{
 		rainbow(scalar_value, &r, &g, &b);
 	}
-	else if (scalar_color_type == COLOR_SAT)
+	else if (matter_color_type == COLOR_SAT)
 	{
 		green_saturation(scalar_value, &r, &g, &b);
 	}
 
 	//if the user chose to insert special values for hue, saturation and brightness
-	if(enable_hsv)
+	if(matter_enable_hsv)
 	{
 		rgb2hsv(r, g, b, &h, &s, &v);
 		// add scale values to current values
-		h += scale_h;
-		s += scale_s;
-		v += scale_v;
+		h += matter_scale_h;
+		s += matter_scale_s;
+		v += matter_scale_v;
 		//convert to rgb
 		hsv2rgb(h, s, v, &r, &g, &b);
 		//set color
@@ -460,37 +486,40 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 {
 	float r, g, b, h, s, v, color_value;
 	
+	//if function is called for drawing glyphs
 	if(type == GLYPH_TYPE)
 	{
 		//compute the value whose color is to be set
 		color_value = atan2(y,x)/PI + 1;
 	}
+	//if function is called for drawing color legend for glyphs
 	if(type == LEGEND_TYPE)
 	{
 		color_value = value;
 	}
-		//apply color scalling. scale_lmin and scale_lmax are set by the user. The interval [0;1] is scaled to the user-inserted interval
-	if(scalar_scale)
+	
+	//apply color scalling. scale_lmin and scale_lmax are set by the user. The interval [0;1] is scaled to the user-inserted interval
+	if(glyph_scale)
 	{
-		color_value = set_scale(color_value, scale_lmin, scale_lmax, 0, 1);
+		color_value = set_scale(color_value, glyph_scale_lmin, glyph_scale_lmax, 0, 1);
 	}
 	
 	//apply clamping. clamp_lmin and clamp_lmax are set by the user
-	if(scalar_clamp)
+	if(glyph_clamp)
 	{
-		if(color_value < clamp_lmin)
+		if(color_value < glyph_clamp_lmin)
 		{
-			color_value = clamp_lmin;
+			color_value = glyph_clamp_lmin;
 		}
 		
-		if(color_value > clamp_lmax)
+		if(color_value > glyph_clamp_lmax)
 		{
-			color_value = clamp_lmax;
+			color_value = glyph_clamp_lmax;
 		}
 	}
 
 	//apply color bands
-	color_value = set_color_bands(color_value);
+	color_value = set_color_bands(color_value, VECTORIAL);
 	
 	if (glyph_color_type == COLOR_BLACKWHITE)
 	{
@@ -506,13 +535,13 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	}
 	
 	//if the user chose to insert special values for hue, saturation and brightness
-	if(enable_hsv)
+	if(glyph_enable_hsv)
 	{
 		rgb2hsv(r, g, b, &h, &s, &v);
 		// add scale values to current values
-		h += scale_h;
-		s += scale_s;
-		v += scale_v;
+		h += glyph_scale_h;
+		s += glyph_scale_s;
+		v += glyph_scale_v;
 		//convert to rgb
 		hsv2rgb(h, s, v, &r, &g, &b);
 	}
@@ -521,8 +550,8 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	glColor3f(r,g,b);
 }
 
-//draw color_legend
-void draw_color_legend(unsigned short int type)
+//draw color legend for smoke/fluid/matter
+void draw_matter_color_legend()
 {
 	unsigned short int i;
 	const unsigned short int max_displayable_values = 32;
@@ -530,71 +559,100 @@ void draw_color_legend(unsigned short int type)
 	
 	//rectangle's length on X and Y axes
 	x_size = (float) MAX_COLOR_BANDS*5;
-	x_size /= color_bands + 1;
+	x_size /= matter_color_bands + 1;
 	y_size = 20;
 	
-	
-	for(i = 0; i <= color_bands; i++)
+	for(i = 0; i <= matter_color_bands; i++)
 	{
 		//obtain the color value depending on the selected number of color bands
 		color_value = (float) i;
-		color_value /= color_bands;
+		color_value /= matter_color_bands;
 		
 		//create a buffer to store the float value to be ouputed on the legend
 		char buffer[10]={'\0'};
 		sprintf(buffer, "%0.3f", color_value);
 		
-		if(type == SMOKE_TYPE)
-		{
-			//draw rectangle containing the color set for the given value
-			glBegin(GL_QUADS);
-			set_colormap(color_value); 			//obtain the color for each value, corresponding to a color band
-			glVertex2f(i*x_size, y_size);		//upper left corner
-			glVertex2f((i+1)*x_size, y_size); 	//upper right corner
-			glVertex2f((i+1)*x_size, 0); 		//down right corner
-			glVertex2f(i*x_size, 0); 			//down left corner
-			glEnd();
-		}
-		if(type == GLYPH_TYPE)
-		{
-			//draw rectangle containing the color set for the given value
-			glBegin(GL_QUADS);		
-			direction_to_color(0, 0, color_value, LEGEND_TYPE);		//obtain the color for each value, corresponding to a color band
-			glVertex2f(i*x_size, winHeight-y_size);					//down left corner
-			glVertex2f((i+1)*x_size, winHeight-y_size); 			//down right corner
-			glVertex2f((i+1)*x_size, winHeight); 					//up right corner
-			glVertex2f(i*x_size, winHeight); 						//up left corner
-			glEnd();
-		}
+		//draw rectangle containing the color set for the given value
+		glBegin(GL_QUADS);
+		set_colormap(color_value); 			//obtain the color for each value, corresponding to a color band
+		glVertex2f(i*x_size, y_size);		//upper left corner
+		glVertex2f((i+1)*x_size, y_size); 	//upper right corner
+		glVertex2f((i+1)*x_size, 0); 		//down right corner
+		glVertex2f(i*x_size, 0); 			//down left corner
+		glEnd();
 
-		
 		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
-		if(color_bands <= max_displayable_values)
+		if(matter_color_bands <= max_displayable_values)
 		{
 			glRasterPos2f(i*x_size, 30);
-			if(type == GLYPH_TYPE)
-			{
-				glRasterPos2f(i*x_size, winHeight-30);
-			}
 			glColor3f(0.8f, 0.8f, 0.8f);
 			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
 		}
 		//Thus, for color bands higher than 32 there are displayed only 32 values
 		else
 		{
-			unsigned short int val = i%(color_bands/max_displayable_values);
+			unsigned short int val = i%(matter_color_bands/max_displayable_values);
 			
 			if(val == 0)
 			{
 				glRasterPos2f(i*x_size, 30);
-				if(type == GLYPH_TYPE)
-				{
-					glRasterPos2f(i*x_size, winHeight-30);
-				}
 				glColor3f(0.8f, 0.8f, 0.8f);
 				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
 			}
 		}
+	}
+}
+
+//draw color legend for glyphs
+void draw_glyph_color_legend()
+{
+	unsigned short int i;
+	const unsigned short int max_displayable_values = 32;
+	float color_value, x_size, y_size;
+	
+	//rectangle's length on X and Y axes
+	x_size = (float) MAX_COLOR_BANDS*5;
+	x_size /= glyph_color_bands + 1;
+	y_size = 20;
+	
+	for(i = 0; i <= glyph_color_bands; i++)
+	{
+		//obtain the color value depending on the selected number of color bands
+		color_value = (float) i;
+		color_value /= glyph_color_bands;
+		
+		//create a buffer to store the float value to be ouputed on the legend
+		char buffer[10]={'\0'};
+		sprintf(buffer, "%0.3f", color_value);
+				
+		//draw rectangle containing the color set for the given value
+		glBegin(GL_QUADS);		
+		direction_to_color(0, 0, color_value, LEGEND_TYPE);		//obtain the color for each value, corresponding to a color band
+		glVertex2f(i*x_size, winHeight-y_size);					//down left corner
+		glVertex2f((i+1)*x_size, winHeight-y_size); 			//down right corner
+		glVertex2f((i+1)*x_size, winHeight); 					//up right corner
+		glVertex2f(i*x_size, winHeight); 						//up left corner
+		glEnd();
+		
+		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
+		if(glyph_color_bands <= max_displayable_values)
+		{
+			glRasterPos2f(i*x_size, winHeight-30);
+			glColor3f(0.8f, 0.8f, 0.8f);
+			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+		}
+		else
+		{
+			unsigned short int val = i%(glyph_color_bands/max_displayable_values);
+			
+			if(val == 0)
+			{
+				glRasterPos2f(i*x_size, winHeight-30);
+				glColor3f(0.8f, 0.8f, 0.8f);
+				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+			}
+		}
+		
 	}
 }
 
@@ -613,7 +671,7 @@ void visualize(void)
 	fftw_real  wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);   // Grid cell width
 	fftw_real  hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);  // Grid cell heigh
 
-	if (draw_smoke)
+	if (draw_matter)
 	{	
 		int idx0, idx1, idx2, idx3;
 		double px0, py0, px1, py1, px2, py2, px3, py3;
@@ -642,7 +700,7 @@ void visualize(void)
 				py3 = hn + (fftw_real)j * hn;
 				idx3 = (j * DIM) + (i + 1);
 
-				if(show_attribute == SHOW_DENSITY)
+				if(show_matter_attribute == SHOW_DENSITY)
 				{
 					draw_triangle_vertex( px0, py0, rho[idx0]);
 					draw_triangle_vertex( px1, py1, rho[idx1]);
@@ -653,7 +711,7 @@ void visualize(void)
 					draw_triangle_vertex( px3, py3, rho[idx3]);
 				}
 				
-				if(show_attribute == SHOW_VELOCITY_MAGNITUDE)
+				if(show_matter_attribute == SHOW_VELOCITY_MAGNITUDE)
 				{
 					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
 					draw_triangle_vertex( px1, py1, vec_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
@@ -664,7 +722,7 @@ void visualize(void)
 					draw_triangle_vertex( px3, py3, vec_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
 				}
 				
-				if(show_attribute == SHOW_FORCE_MAGNITUDE)
+				if(show_matter_attribute == SHOW_FORCE_MAGNITUDE)
 				{
 					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
 					draw_triangle_vertex( px1, py1, vec_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
@@ -678,10 +736,10 @@ void visualize(void)
 		}
 		glEnd();
 		
-		draw_color_legend(SMOKE_TYPE);
+		draw_matter_color_legend();
 	}
 
-	if (draw_vecs)		//draw velocities
+	if (draw_vecs)		//draw vectors
 	{
 		glBegin(GL_LINES);				
 		for (i = 0; i < DIM; i++)
@@ -689,33 +747,26 @@ void visualize(void)
 			{
 				idx = (j * DIM) + i;
 				
-				direction_to_color(vx[idx], vy[idx], 0, GLYPH_TYPE);
+				if(show_glyph_attribute == SHOW_VELOCITY)
+				{
+					direction_to_color(vx[idx], vy[idx], 0, GLYPH_TYPE);
 				
-				glVertex2f(wn + (fftw_real)i * wn, hn + (fftw_real)j * hn);
-				glVertex2f((wn + (fftw_real)i * wn) + vec_scale * vx[idx], (hn + (fftw_real)j * hn) + vec_scale * vy[idx]);
+					glVertex2f(wn + (fftw_real)i * wn, hn + (fftw_real)j * hn);
+					glVertex2f((wn + (fftw_real)i * wn) + vec_scale * vx[idx], (hn + (fftw_real)j * hn) + vec_scale * vy[idx]);
+				}
+				
+				if(show_glyph_attribute == SHOW_FORCE)
+				{
+					direction_to_color(fx[idx], fy[idx], 0, GLYPH_TYPE);
+				
+					glVertex2f(wn + (fftw_real)i * wn, hn + (fftw_real)j * hn);
+					glVertex2f((wn + (fftw_real)i * wn) + vec_scale * fx[idx], (hn + (fftw_real)j * hn) + vec_scale * fy[idx]);
+				}
 			}
 		glEnd();
 		
-		draw_color_legend(GLYPH_TYPE);
+		draw_glyph_color_legend();
 	}
-	/*
-	 * else	//draw forces
-	{
-		glBegin(GL_LINES);				
-		for (i = 0; i < DIM; i++)
-			for (j = 0; j < DIM; j++)
-			{
-				idx = (j * DIM) + i;
-				
-				direction_to_color(fx[idx], fy[idx]);
-				
-				glVertex2f(wn + (fftw_real)i * wn, hn + (fftw_real)j * hn);
-				glVertex2f((wn + (fftw_real)i * wn) + vec_scale * fx[idx], (hn + (fftw_real)j * hn) + vec_scale * fy[idx]);
-			}
-		glEnd();
-	}
-	* */
-	
 }
 
 
@@ -749,69 +800,106 @@ void keyboard(unsigned char key, int x, int y)
 	{
 		case 't': dt -= 0.001; break;
 		case 'T': dt += 0.001; break; 
-		case 'c': glyph_color_type++;
-			if (glyph_color_type > COLOR_SAT)
-			{
-				glyph_color_type = COLOR_BLACKWHITE;
-			}
-			break;
 		case 'S': vec_scale *= 1.2; break;
 		case 's': vec_scale *= 0.8; break;
 		case 'V': visc *= 5; break;
 		case 'v': visc *= 0.2; break;
 		case 'x':
-			draw_smoke = 1 - draw_smoke;
-			if (draw_smoke==0) draw_vecs = 1;
+			draw_matter = 1 - draw_matter;
+			if (draw_matter == 0) draw_vecs = 1;
 			break;
 		case 'y':
 			draw_vecs = 1 - draw_vecs;
-			if (draw_vecs==0) draw_smoke = 1;
+			if (draw_vecs==0) draw_matter = 1;
 			break;
-		case 'm':
-			scalar_color_type++;
-			if (scalar_color_type > COLOR_SAT)
+		case 'm': matter_color_type++;
+			if (matter_color_type > COLOR_SAT)
 			{
-				scalar_color_type = COLOR_BLACKWHITE;
+				matter_color_type = COLOR_BLACKWHITE;
 			}
 			break;
-		case 'b': color_bands *= 2;
-			if(color_bands > MAX_COLOR_BANDS)
+		case 'M': glyph_color_type++;
+			if (glyph_color_type > COLOR_SAT)
 			{
-				color_bands = 2;
+				glyph_color_type = COLOR_BLACKWHITE;
+			}
+			break;
+		case 'b': matter_color_bands *= 2;
+			if(matter_color_bands > MAX_COLOR_BANDS)
+			{
+				matter_color_bands = 2;
+			}
+			break;
+		case 'B': glyph_color_bands *= 2;
+			if(glyph_color_bands > MAX_COLOR_BANDS)
+			{
+				glyph_color_bands = 2;
 			}
 			break;
 		case 'n':
-			show_attribute++;
-			if (show_attribute > SHOW_FORCE_MAGNITUDE)
+			show_matter_attribute++;
+			if (show_matter_attribute > SHOW_FORCE_MAGNITUDE)
 			{
-				show_attribute = SHOW_DENSITY;
+				show_matter_attribute = SHOW_DENSITY;
 			}
 			break;
-		case 'k': scalar_scale = 1-scalar_scale; 
-			if(scalar_scale)
+		case 'N':
+			show_glyph_attribute++;
+			if (show_glyph_attribute > SHOW_FORCE)
 			{
-				scalar_clamp = 0;
-				printf("Set fluid color scale interval range\n");
+				show_glyph_attribute = SHOW_VELOCITY;
+			}
+			break;
+		case 'k': matter_scale = 1-matter_scale; 
+			if(matter_scale)
+			{
+				matter_clamp = 0;
+				printf("Set smoke color scale interval range\n");
 				printf("Insert lower value and upper value:\n");
-				scanf("%f %f", &scale_lmin, &scale_lmax);
+				scanf("%f %f", &matter_scale_lmin, &matter_scale_lmax);
 			}
 			break;
-		case 'j': scalar_clamp = 1-scalar_clamp; 
-			if(scalar_clamp)
+		case 'K': glyph_scale = 1-glyph_scale; 
+			if(glyph_scale)
 			{
-				scalar_scale = 0;
-				printf("Set fluid color clamp interval range\n");
+				glyph_clamp = 0;
+				printf("Set glyph color scale interval range\n");
 				printf("Insert lower value and upper value:\n");
-				scanf("%f %f", &clamp_lmin, &clamp_lmax);
+				scanf("%f %f", &glyph_scale_lmin, &glyph_scale_lmax);
 			}
 			break;
-		case 'l': enable_hsv = 1 - enable_hsv; 
-			if(enable_hsv)
+		case 'j': matter_clamp = 1-matter_clamp; 
+			if(matter_clamp)
 			{
-				printf("Increase h,s,v values by:\n");
-				scanf("%f %f %f", &scale_h, &scale_s, &scale_v);
+				matter_scale = 0;
+				printf("Set smoke color clamp interval range\n");
+				printf("Insert lower value and upper value:\n");
+				scanf("%f %f", &matter_clamp_lmin, &matter_clamp_lmax);
 			}
-			break; 
+			break;
+		case 'J': glyph_clamp = 1-glyph_clamp; 
+			if(glyph_clamp)
+			{
+				glyph_scale = 0;
+				printf("Set glyph color clamp interval range\n");
+				printf("Insert lower value and upper value:\n");
+				scanf("%f %f", &glyph_clamp_lmin, &glyph_clamp_lmax);
+			}
+			break;	
+		case 'l': matter_enable_hsv = 1-matter_enable_hsv; 
+			if(matter_enable_hsv)
+			{
+				printf("Increase smoke h,s,v values by:\n");
+				scanf("%f %f %f", &matter_scale_h, &matter_scale_s, &matter_scale_v);
+			}
+			break;
+		case 'L': glyph_enable_hsv = 1-glyph_enable_hsv; 
+			if(glyph_enable_hsv)
+			{
+				printf("Increase glyph h,s,v values by:\n");
+				scanf("%f %f %f", &glyph_scale_h, &glyph_scale_s, &glyph_scale_v);
+			}
+			break;  
 		case 'a': frozen = 1-frozen; break;
 		case 'q': exit(0);
 	}
@@ -866,18 +954,23 @@ int main(int argc, char **argv)
 	printf("=======================================\n");
 	printf("Click and drag the mouse to steer the flow!\n");
 	printf("T/t:   increase/decrease simulation timestep\n");
-	printf("S/s:   increase/decrease hedgehog scaling\n");
-	printf("c:     toggle direction coloring on/off\n");
+	printf("S/s:   increase/decrease glyph scaling\n");
 	printf("V/v:   increase decrease fluid viscosity\n");
-	printf("x:     toggle drawing matter on/off\n");
-	printf("y:     toggle drawing hedgehogs on/off\n");
+	printf("x:     toggle drawing smoke on/off\n");
+	printf("y:     toggle drawing glyphs on/off\n");
 	printf("a:     toggle the animation on/off\n");
 	printf("m:     toggle thru scalar coloring\n");
-	printf("n:     toggle thru shown attributes (density, velocity, force) \n");
-	printf("b:     change color bands for color mapping (2...256)\n");
-	printf("j:     toggle the color map clamping on/off\n");
-	printf("k:     toggle the color map scaling on/off\n");
-	printf("l:     toggle the hsv coloring on/off\n");
+	printf("M:     toggle toggle thru glyph coloring\n");
+	printf("n:     toggle thru scalar shown attributes (density, velocity magnitude, force magnitude) \n");
+	printf("N:     toggle thru vector shown attributes (velocity, force)\n");
+	printf("b:     change color bands for smoke (2...256)\n");
+	printf("B:     change color bands for glyphs (2...256)\n");
+	printf("j:     toggle the smoke color map clamping on/off\n");
+	printf("J:     toggle the glyph color map clamping on/off\n");
+	printf("k:     toggle the smoke color map scaling on/off\n");
+	printf("K:     toggle the glyph color map scaling on/off\n");
+	printf("l:     toggle the smoke hsv coloring on/off\n");
+	printf("L:     toggle the glyph hsv coloring on/off\n");
 	printf("q:     quit\n\n");
 
 	glutInit(&argc, argv);
