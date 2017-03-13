@@ -750,27 +750,95 @@ void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cel
 	glEnd();
 }
 
+//functions for drawing glyphs. They are called in visualization function
+//attribute: velocity or force; x, y: indeces in the grid
+void draw_cone(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+{
+	//compute each triangle's vertices' coordinates
+	float top_x = (fftw_real)x * cell_width + cell_width/4 + vec_scale * attribute_x; 
+	float top_y = (fftw_real)y * cell_height + cell_height/2 - 0.01 + vec_scale * attribute_y; 
+						
+	//if adding scaling leads to exceeding the cell's dimensions on x axis, clamp to cell dimensions
+	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
+						
+	//do not exceed the cell's height. When rotated 90 degrees it shouldn't exceed the cell's width, but it can have intermediary positions
+	//Thus, considers the minimum between cell's height and width, which is known (the height) and the scaling is half of it
+	//as the original glyph height is already the other half. Is like a circle inside the cell, which has the ray = height/2
+	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01); 
+						 
+	//draw glyph
+	glBegin(GL_TRIANGLES);
+	glVertex2f( (fftw_real)x * cell_width, (fftw_real)y * cell_height);
+	glVertex2f( (fftw_real)x * cell_width + cell_width/2 - 0.01, (fftw_real)y * cell_height);
+	glVertex2f( top_x, top_y);
+	glEnd();
+}
+
+void draw_cone2(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+{
+	int i, angle;
+	
+	//compute the base's center and ray
+	float cx = (fftw_real)x * cell_width + cell_width/4;
+	float cy =  (fftw_real)y * cell_height + cell_height/2 - 0.01;
+	float ray = cell_width/4 + vec_scale * attribute_x;
+	
+	//compute the cone's top coordinates
+	float top_x = cx + vec_scale * attribute_x; 
+	float top_y = cy + vec_scale * attribute_y;
+
+	ray = clamp_value(ray, cell_width/4, cell_width/2);
+	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
+	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01);
+	
+	//cone's top
+	glBegin(GL_TRIANGLE_FAN);
+	glVertex3f(top_x, top_y, 0);
+    for (i = 0; i < 360; i++)
+    {
+		angle = 2.0f * PI * (float)i/360;
+		glVertex3f(cos(angle) * cell_width/4, sin(angle) * cell_width/4, 0);
+    }
+    glEnd(); 
+    
+    // draw the base of the cone
+	glBegin(GL_TRIANGLE_FAN);
+	glVertex2f((fftw_real)x * cell_width + cell_width/4, (fftw_real)y * cell_height);
+	for (i = 0; i < 360; i++) 
+	{
+		angle = 2.0f * PI * (float)i/360;
+		glVertex3f(sin(angle) * cell_width/4, cos(angle) * cell_width/4, 0);
+	}
+	glEnd();
+}
+
 //cx, cy: center's coordinates, which are the left-bottom corner of a cell
 ////attribute: velocity or force; 
-void draw_filled_ellipse(float cx, float cy, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y, float cell_width, float cell_height)
 {
 	unsigned short int i;
 	int num_segments = 20;
-	float angle, x, y;
+	float angle, xx, yy;
+	//compute the ellipse's center
+	float cx = (fftw_real)x * cell_width;
+	float cy =  (fftw_real)y * cell_height;
+	//compute ellipse's rays
 	float rx = cell_width/4 + vec_scale * attribute_x;
 	float ry = cell_height/4 + vec_scale * attribute_y;
 	
+	//clamp values so the ellipses won't overlap
 	rx = clamp_value(rx, cell_width/4, cell_width/2);
 	ry = clamp_value(ry, cell_height/4, cell_height/2 - 0.5);
 	
-    glBegin(GL_TRIANGLE_FAN); 
-    glVertex2f(cx, cy); 														// center of circle
+    glBegin(GL_TRIANGLE_FAN);
+    //set the center of circle 
+    glVertex2f(cx, cy); 														
     for (i = 0; i <= num_segments; i++)   
     {
 		angle = 2.0f * PI * (float)i/(float)num_segments;
-		x = rx * cosf(angle);													//calculate the x component 
-        y = ry * sinf(angle);													//calculate the y component  
-        glVertex2f(cx + x, cy + y);
+		xx = rx * cosf(angle);													//calculate the x component 
+        yy = ry * sinf(angle);													//calculate the y component  
+        glVertex2f(cx + xx, cy + yy);
     }
     glEnd();
 }
@@ -878,8 +946,6 @@ void visualize(void)
 	if (draw_vecs)		//draw vectors
 	{
 		float magnitude = 0.0;
-		
-		float top_x, top_y;
 						
 		for (i = 1; i < DIM; i++)
 			for (j = 1; j < DIM; j++)
@@ -925,29 +991,11 @@ void visualize(void)
 					}
 					else if(show_glyph_type == SHOW_CONES)
 					{		
-						//compute each triangle's vertices' coordinates
-						top_x = (fftw_real)i * wn + wn/4 + vec_scale * vx[idx]; 
-						top_y = (fftw_real)j * hn + hn/2 - 0.01 + vec_scale * vy[idx]; 
-						
-						//if adding scaling leads to exceeding the cell's dimensions on x axis, clamp to cell dimensions
-						top_x = clamp_value(top_x, (fftw_real)i * wn, (fftw_real)i * wn + wn/2 - 0.01);
-						
-						//do not exceed the cell's height. When rotated 90 degrees it shouldn't exceed the cell's width, but it can have intermediary positions
-						//Thus, considers the minimum between cell's height and width, which is known (the height) and the scaling is half of it
-						//as the original glyph height is already the other half. Is like a circle inside the cell, which has the ray = height/2
-						top_y = clamp_value(top_y, (fftw_real)j * hn + hn/2 - 0.01, (fftw_real)j * hn + hn - 0.01); 
-						 
-						//draw glyph
-						glBegin(GL_TRIANGLES);
-						glVertex2f( (fftw_real)i * wn, (fftw_real)j * hn);
-						glVertex2f( (fftw_real)i * wn + wn/2 - 0.01, (fftw_real)j * hn);
-						glVertex2f( top_x, top_y);
-						glEnd();
-
+						draw_cone2(i, j, vx[idx], vy[idx], wn, hn);
 					}
 					else if(show_glyph_type == SHOW_ELLIPSES)
 					{
-						draw_filled_ellipse((fftw_real)i * wn, (fftw_real)j * hn, vx[idx], vy[idx], wn, hn);
+						draw_filled_ellipse(i, j, vx[idx], vy[idx], wn, hn);
 					}
 				}
 				
@@ -987,28 +1035,11 @@ void visualize(void)
 					}
 					else if(show_glyph_type == SHOW_CONES)
 					{
-						top_x = (fftw_real)i * wn + wn/4 - 0.01 + vec_scale * fx[idx];
-						top_y = (fftw_real)j * hn + vec_scale * fy[idx];
-						
-						//if adding scaling leads to exceeding the cell's dimensions on x axis, clamp to cell dimensions
-						top_x = clamp_value(top_x, (fftw_real)i * wn, (fftw_real)i * wn + wn/2 - 0.01);
-						
-						//do not exceed the cell's height. When rotated 90 degrees it shouldn't exceed the cell's width, but it can have intermediary positions
-						//Thus, considers the minimum between cell's height and width, which is known (the height) and the scaling is half of it
-						//as the original glyph height is already the other half. Is like a circle inside the cell, which has the ray = height/2
-						top_y = clamp_value(top_y, (fftw_real)j * hn + hn - 0.01, (fftw_real)j * hn + hn - 0.01);  
-						
-						//compute each triangle's vertices' coordinates
-						glBegin(GL_POLYGON);
-						glVertex2f( (fftw_real)i * wn, (fftw_real)j * hn);
-						glVertex2f( (fftw_real)i * wn + wn/4 - 0.01, (fftw_real)j * hn);
-						glVertex2f( (fftw_real)i * wn + wn/2 - 0.01, (fftw_real)j * hn);
-						glVertex2f( top_x, top_y);
-						glEnd(); 
+						draw_cone(i, j, fx[idx], fy[idx], wn, hn);
 					}
 					else if(show_glyph_type == SHOW_ELLIPSES)
 					{
-						draw_filled_ellipse((fftw_real)i * wn, (fftw_real)j * hn, fx[idx], fy[idx], wn, hn);
+						draw_filled_ellipse(i, j, fx[idx], fy[idx], wn, hn);
 					}
 				}
 			}
