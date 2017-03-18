@@ -2,9 +2,10 @@
 //        the velocity field at the mouse location. Press the indicated keys to change options
 //--------------------------------------------------------------------------------------------------
 
-#include <rfftw.h>              //the numerical simulation FFTW library
+#include <rfftw.h>              //the numerical simulation FFTW 
 #include <stdio.h>              //for printing the help text
-#include <math.h>               //for various math functions
+
+#include <math.h>               //for various math functions #include
 #include <GL/glut.h>            //the GLUT graphics library
 
 #define PI 3.1415927
@@ -18,6 +19,8 @@
 
 //--- SIMULATION PARAMETERS ------------------------------------------------------------------------
 #define DIM 50
+unsigned short int no_glyphs_x = 50;
+unsigned short int no_glyphs_y = 50;
 double dt = 0.4;													//simulation time step
 float visc = 0.001;													//fluid viscosity
 fftw_real *vx, *vy;             									//(vx,vy)   = velocity field at the current moment
@@ -76,7 +79,6 @@ float glyph_scale_lmin = 0, glyph_scale_lmax = 0;					//the limits of the interv
 bool glyph_clamp = FALSE;											//default colormap clamping
 float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;					//the limits to which a value is clamped
 
-#define DEF_D 5
 
 //------ SIMULATION CODE STARTS HERE -----------------------------------------------------------------
 
@@ -731,85 +733,139 @@ float clamp_value( float value, float min, float max)
 	return value;
 }
 
+//compute the angle between the vector and the Ox axis
+float direction2angle(float x, float y)			
+{
+	float n = vec_magnitude(x, y); 
+	
+	//normalize the vector
+	if (n<1.0e-6) 
+	{
+		n=1;
+	} 
+		
+	x/=n; 
+	y/=n; 
+
+	return atan2(x,-y) * (180 / M_PI);
+
+	/*float cosa = x;
+	float sina = y;
+	float a;
+	
+	if (sina >= 0)
+	{
+		a = acos(cosa);
+	}
+	else
+	{
+		a = 2*M_PI - acos(cosa);
+	}*/
+		
+	//return 180*a/M_PI;
+}
+
 //functions for drawing glyphs. They are called in visualization function
 //attribute: velocity or force; x, y: indeces in the grid
 void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
 {
-	float top_x = (fftw_real)x * cell_width + vec_scale * attribute_x;
-	float top_y = (fftw_real)y * cell_height + vec_scale * attribute_y;
-						
-	//the top of hedgehog can move to left or right no more than one cell's width
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width - cell_width + 0.01, (fftw_real)x * cell_width + cell_width - 0.01);
-						
-	//the top of hedgehog can move to up or down no more than one cell's height
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height - cell_height + 0.01, (fftw_real)y * cell_height + cell_height - 0.01);
-						
+	//base point coordinates
+	float base_x = (fftw_real)x * cell_width + cell_width*1/2;
+	float base_y = (fftw_real)y * cell_height;
+	//top point's coordinates
+	float top_x = base_x; 
+	float top_y;
+	
+	//scale factors for the top point
+	float scale_x = vec_scale * attribute_x;
+	float scale_y = vec_scale * attribute_y;
+	
+	
+	//maximum scale size is how many times  both x and y dimensions fit in the min(cell_height, cell_width)
+	//minimum size is half of the min(cell_height, cell_width)			 
+	if(cell_width >= cell_height)
+	{
+		top_y = base_y + cell_height*1/2;
+
+		//set hedgehog's height accordingly to the glyphs cell's dimensions
+		scale_x = clamp_value(scale_x, cell_height/(4*cell_width*1/2), cell_height/(cell_width*1/2) );
+		scale_y = clamp_value(scale_y, cell_height/(4*(top_y-base_y)), cell_height/(top_y-base_y) );
+	}
+	else
+	{
+		top_y = base_y + cell_width*1/2; 
+		
+		//set hedgehog's height accordingly to the glyphs cell's dimensions
+		scale_x = clamp_value(scale_x, cell_width/(4*cell_width*1/2), cell_width/(cell_width*1/2) );
+		scale_y = clamp_value(scale_y, cell_width/(4*(top_y-base_y)), cell_width/(top_y-base_y) );
+	}
+
+	float angle = direction2angle(attribute_x, attribute_y);
+	
+    glPushMatrix();
+    
+    glTranslatef(base_x, base_y, 0);
+	glRotatef(angle, 0, 0, 1.0);
+	glScalef(scale_x, scale_y, 1.0);
+	glTranslatef(-1*base_x, -1*base_y, 1.0);					
 	glBegin(GL_LINES);
-	glVertex2f( (fftw_real)x * cell_width, (fftw_real)y * cell_height);
+	glVertex2f( base_x, base_y);
 	glVertex2f(top_x, top_y);
 	glEnd();
+	
+	glPopMatrix();
 }
-
+//Draw 2D glyphs
 //functions for drawing glyphs. They are called in visualization function
 //attribute: velocity or force; x, y: indeces in the grid
-void draw_cone(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
 {
-	//compute each triangle's vertices' coordinates
-	float top_x = (fftw_real)x * cell_width + cell_width/4 + vec_scale * attribute_x; 
-	float top_y = (fftw_real)y * cell_height + cell_height/2 - 0.01 + vec_scale * attribute_y; 
-						
-	//if adding scaling leads to exceeding the cell's dimensions on x axis, clamp to cell dimensions
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
-						
-	//do not exceed the cell's height. When rotated 90 degrees it shouldn't exceed the cell's width, but it can have intermediary positions
-	//Thus, considers the minimum between cell's height and width, which is known (the height) and the scaling is half of it
-	//as the original glyph height is already the other half. Is like a circle inside the cell, which has the ray = height/2
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01); 
-						 
+	//compute the vertices' coordinates
+	float right_x = (fftw_real)x * cell_width + cell_width*1/4;
+	float right_y = (fftw_real)y * cell_height + cell_height*1/4;
+	float left_x = (fftw_real)x * cell_width + cell_width*3/4;
+	float left_y = right_y;
+	float top_x = (fftw_real)x * cell_width + cell_width*1/2; 
+	float top_y;  
+	
+	//triangle's center coordinates
+	float cx = top_x;
+	float cy = (fftw_real)y * cell_height + cell_height*5/12;
+	
+	//compute scaling factors
+	float scale_x = vec_scale * attribute_x;
+	float scale_y = vec_scale * attribute_y;
+	
+	if(cell_width >= cell_height)
+	{
+		top_y = (fftw_real)y * cell_height + cell_height*3/4; 
+	}
+	else
+	{
+		top_y = (fftw_real)y * cell_height + cell_width*3/4; 
+	}
+	
+	scale_x = clamp_value(scale_x, 0.75, 2);
+	scale_y = clamp_value(scale_y, 0.75, 2);
+	
+	float angle = direction2angle(attribute_x, attribute_y);
+	
+	glClear(GL_DEPTH_BUFFER_BIT); 
+    glMatrixMode(GL_MODELVIEW);																	//it is applied to object coordinates
+    glPushMatrix();       																		//clones the previous matrix and puts it on the stack for applying transformations
+    glTranslatef(cx, cy, 0.0);																	//translate to world coordinates
+	glRotatef(angle, 0.0, 0.0, 1.0);																//rotate around Oz axis, in world coordinates (0,0,0)
+	glScalef(scale_x, scale_y, 1.0);
+	glTranslatef(-1*cx, -1*cy, 0.0);   					 										//translate to back to object coordinates
 	//draw glyph
 	glBegin(GL_TRIANGLES);
-	glVertex2f( (fftw_real)x * cell_width, (fftw_real)y * cell_height);
-	glVertex2f( (fftw_real)x * cell_width + cell_width/2 - 0.01, (fftw_real)y * cell_height);
+	glVertex2f( right_x, right_y);
+	glVertex2f( left_x, left_y);
 	glVertex2f( top_x, top_y);
 	glEnd();
-}
-
-void draw_cone2(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
-{
-	int i, angle;
 	
-	//compute the base's center and ray
-	float cx = (fftw_real)x * cell_width + cell_width/4;
-	float cy =  (fftw_real)y * cell_height + cell_height/2 - 0.01;
-	float ray = cell_width/4 + vec_scale * attribute_x;
-	
-	//compute the cone's top coordinates
-	float top_x = cx + vec_scale * attribute_x; 
-	float top_y = cy + vec_scale * attribute_y;
-
-	ray = clamp_value(ray, cell_width/4, cell_width/2);
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01);
-	
-	//cone's top
-	glBegin(GL_TRIANGLE_FAN);
-	glVertex3f(top_x, top_y, 0);
-    for (i = 0; i < 360; i++)
-    {
-		angle = 2.0f * PI * (float)i/360;
-		glVertex3f(cos(angle) * cell_width/4, sin(angle) * cell_width/4, 0);
-    }
-    glEnd(); 
-    
-    // draw the base of the cone
-	glBegin(GL_TRIANGLE_FAN);
-	glVertex2f((fftw_real)x * cell_width + cell_width/4, (fftw_real)y * cell_height);
-	for (i = 0; i < 360; i++) 
-	{
-		angle = 2.0f * PI * (float)i/360;
-		glVertex3f(sin(angle) * cell_width/4, cos(angle) * cell_width/4, 0);
-	}
-	glEnd();
+	glPopMatrix();																				//deletes matrix from stack, after drawing is done
+		
 }
 
 //cx, cy: center's coordinates, which are the left-bottom corner of a cell
@@ -819,53 +875,126 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
 	unsigned short int i;
 	int num_segments = 20;
 	float angle, xx, yy;
+	
 	//compute the ellipse's center
 	float cx = (fftw_real)x * cell_width;
 	float cy =  (fftw_real)y * cell_height;
-	//compute ellipse's rays
-	float rx = cell_width/4 + vec_scale * attribute_x;
-	float ry = cell_height/4 + vec_scale * attribute_y;
+	//compute ellipse's radius, including scaling
+	float rx = cell_width*1/4;
+	float ry = cell_height*1/4;
+	//compute scaling factors
+	float scale_x = vec_scale * attribute_x;
+	float scale_y = vec_scale * attribute_y;
+	//clamp values so the ellipses won't overlap. They do not exceed the maximum size = cell_height
+	scale_x = clamp_value(scale_x, 0.5, 1);
+	scale_y = clamp_value(scale_y, 0.5, 2); 
 	
-	//clamp values so the ellipses won't overlap
-	rx = clamp_value(rx, cell_width/4, cell_width/2);
-	ry = clamp_value(ry, cell_height/4, cell_height/2 - 0.5);
+	float theta = direction2angle(attribute_x, attribute_y);
 	
+	glClear(GL_DEPTH_BUFFER_BIT); 
+    glMatrixMode(GL_MODELVIEW);																	//it is applied to object coordinates
+    glPushMatrix();       																		//clones the previous matrix and puts it on the stack for applying transformations
+    glTranslatef(cx, cy, 0.0);																	//translate to world coordinates
+	glRotatef(theta, 0.0, 0.0, 1.0);																//rotate around Oz axis, in world coordinates (0,0,0)
+	glScalef(scale_x, scale_y, 1.0);																
+	glTranslatef(-1*cx, -1*cy, 0.0);   					 										//translate to back to object coordinates
+	//draw the circle
     glBegin(GL_TRIANGLE_FAN);
     //set the center of circle 
     glVertex2f(cx, cy); 														
     for (i = 0; i <= num_segments; i++)   
     {
 		angle = 2.0f * PI * (float)i/(float)num_segments;
-		xx = rx * cosf(angle);													//calculate the x component 
-        yy = ry * sinf(angle);													//calculate the y component  
+		xx = rx * cosf(angle);																	//calculate the x component 
+        yy = ry * sinf(angle);																	//calculate the y component  
         glVertex2f(cx + xx, cy + yy);
     }
     glEnd();
+    
+    glPopMatrix();																				//deletes matrix from stack, after drawing is done
 }
 
-/*void draw_empty_ellipse(float cx, float cy, float attribute_x, float attribute_y, float cell_width, float cell_height) 
-{
-	unsigned short int i;
-	int num_segments = 100;
-	float angle, x, y;
-	//rays for the ellipse
-	float rx = cell_width/4 + vec_scale * attribute_x;
-	float ry = cell_height/4 + vec_scale * attribute_y;
+//Draw 3D glyphs
+void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)					
+{	
+	//cone's height and base's radius
+	float base_radius = cell_width*1/2;
+	float height = cell_height;
 	
-	rx = clamp_value(rx, cell_width/4, cell_width/2);
-	ry = clamp_value(ry, cell_height/4, cell_height/2 - 0.5);
+	//scaling factors
+	float base_scaling_factor = vec_scale * attribute_x;
+	float height_scaling_factor = vec_scale * attribute_y;
 	
-    glBegin(GL_LINE_LOOP);
-    for (i = 0; i < num_segments; i++)   
-    {
-        angle = 2.0f * PI * (float)i/(float)num_segments;						//get the current angle 
-        x = rx * cosf(angle);													//calculate the x component 
-        y = ry * sinf(angle);													//calculate the y component 
-        glVertex2f(x + cx, y + cy);												//output vertex 
-    }
-    glEnd();
-}*/
+	//compute the base's center
+	float cx = (fftw_real)x * cell_width + cell_width*1/2;
+	float cy =  (fftw_real)y * cell_height;
+	
+	//clamp values so the ellipses won't overlap. They do not exceed the maximum size = cell_height
+	if(cell_width >= cell_height)
+	{
+		base_scaling_factor = clamp_value(base_scaling_factor, cell_height/(4*base_radius), cell_height/(2*base_radius) );
+		height_scaling_factor = clamp_value(height_scaling_factor, cell_height/(4*height), cell_height/(2*height) );
+	}
+	else
+	{
+		base_scaling_factor = clamp_value(base_scaling_factor, cell_width/(4*base_radius), cell_width/(2*base_radius) );
+		height_scaling_factor = clamp_value(height_scaling_factor, cell_width/(4*height), cell_width/(2*height) );
+	} 
+				
+	float angle = direction2angle(attribute_x, attribute_y);				
+	
+	//glMatrixMode(GL_MODELVIEW);
+    //push the current matrix on stack and perform transformations
+    glPushMatrix();
+    glTranslatef(cx, cy, 0.0);
+    glRotatef(angle, 0, 0, 1);
+    glRotatef(180, 0, 1, 0);
+    glRotatef(90, 1, 0, 0);										
+    glScalef(base_scaling_factor, height_scaling_factor, 1.0);					
+	glutSolidCone(base_radius, height, 30, 30);
+	//delete matrix from stack			
+	glPopMatrix();
+}
 
+void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+{
+	//compute the ellipsoid's center
+	float cx = (fftw_real)x * cell_width + cell_width*1/2;
+	float cy =  (fftw_real)y * cell_height + cell_height*1/2;
+	//compute scaling factors
+	float scale_x = vec_scale * attribute_x;
+	float scale_y = vec_scale * attribute_y;
+	//radius of the globe
+	float radius;
+	
+	if(cell_width >= cell_height)
+	{
+		radius = cell_height*1/4;
+		
+		scale_x = clamp_value(scale_x, cell_width/(4*radius), cell_height/(2*radius) );
+		scale_y = clamp_value(scale_y, cell_height/(4*radius), cell_height/(2*radius) );
+	}
+	else
+	{
+		radius = cell_width*1/4;
+		
+		scale_x = clamp_value(scale_x, cell_width/(4*radius), cell_width/(2*radius) );
+		scale_y = clamp_value(scale_y, cell_height/(4*radius), cell_width/(2*radius) );
+	}
+	
+	float theta = direction2angle(attribute_x, attribute_y);
+
+	//glMatrixMode(GL_MODELVIEW);
+
+	//push the current matrix on stack and perform transformations
+	glPushMatrix();
+	glTranslatef(cx, cy, 0);
+	glRotatef(theta, 0, 0, 1.0);
+	glScalef(scale_x, scale_y, 1.0);
+	glutSolidSphere(radius, 30, 30);
+	//delete matrix from stack
+	glPopMatrix();
+}
 
 //visualize: This is the main visualization function
 void visualize(void)
@@ -945,10 +1074,12 @@ void visualize(void)
 
 	if (draw_vecs)		//draw vectors
 	{
+		fftw_real glyph_x_dim = (fftw_real)winWidth / (fftw_real)(no_glyphs_x);   // Grid cell width
+		fftw_real glyph_y_dim = (fftw_real)winHeight / (fftw_real)(no_glyphs_y);  // Grid cell heigh
 		float magnitude = 0.0;
 						
-		for (i = 1; i < DIM; i++)
-			for (j = 1; j < DIM; j++)
+		for (i = 0; i < no_glyphs_x; i++)
+			for (j = 2; j < no_glyphs_y-1; j++)
 			{
 				idx = (j * DIM) + i;
 				
@@ -987,15 +1118,44 @@ void visualize(void)
 					//choose glyphs' type
 					if(show_glyph_type == SHOW_HEDGEHOGS)
 					{
-						draw_hedgehog(i, j, vx[idx], vy[idx], wn, hn);
+						glMatrixMode(GL_MODELVIEW);
+						draw_hedgehog(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
 					}
 					else if(show_glyph_type == SHOW_CONES)
-					{		
-						draw_cone2(i, j, vx[idx], vy[idx], wn, hn);
+					{
+						glMatrixMode(GL_PROJECTION);						
+						glLoadIdentity ();
+						glOrtho(0, winWidth, 0, winHeight, -100, 100);
+						glDisable(GL_DEPTH_TEST);
+						glViewport(0,0,winWidth,winHeight);
+						
+						glClear(GL_DEPTH_BUFFER_BIT);
+						glEnable(GL_LIGHTING);
+						glEnable(GL_LIGHT0);
+						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+						glEnable(GL_DEPTH_TEST);
+						glEnable(GL_COLOR_MATERIAL);
+		
+						glMatrixMode(GL_MODELVIEW);
+						draw_cones(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
+						
+						//disable lightning
+						glDisable(GL_LIGHTING);
 					}
 					else if(show_glyph_type == SHOW_ELLIPSES)
 					{
-						draw_filled_ellipse(i, j, vx[idx], vy[idx], wn, hn);
+						glClear(GL_DEPTH_BUFFER_BIT);
+						glEnable(GL_LIGHTING);
+						glEnable(GL_LIGHT0);
+						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+						glEnable(GL_DEPTH_TEST);
+						glEnable(GL_COLOR_MATERIAL);
+		
+						glMatrixMode(GL_MODELVIEW);
+						draw_ellipsoids(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
+						
+						//disable lightning
+						glDisable(GL_LIGHTING);
 					}
 				}
 				
@@ -1031,19 +1191,48 @@ void visualize(void)
 					
 					if(show_glyph_type == SHOW_HEDGEHOGS)
 					{
-						draw_hedgehog(i, j, fx[idx], fy[idx], wn, hn);
+						glMatrixMode(GL_MODELVIEW);
+						draw_hedgehog(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
 					}
 					else if(show_glyph_type == SHOW_CONES)
 					{
-						draw_cone(i, j, fx[idx], fy[idx], wn, hn);
+						glMatrixMode(GL_PROJECTION);						
+						glLoadIdentity ();
+						glOrtho(0, winWidth, 0, winHeight, -100, 100);
+						glDisable(GL_DEPTH_TEST);
+						glViewport(0,0,winWidth,winHeight);
+						
+						glClear(GL_DEPTH_BUFFER_BIT);
+						glEnable(GL_LIGHTING);
+						glEnable(GL_LIGHT0);
+						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+						glEnable(GL_DEPTH_TEST);
+						glEnable(GL_COLOR_MATERIAL);
+		
+						glMatrixMode(GL_MODELVIEW);
+						draw_cones(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
+						
+						//disable lightning
+						glDisable(GL_LIGHTING);
 					}
 					else if(show_glyph_type == SHOW_ELLIPSES)
 					{
-						draw_filled_ellipse(i, j, fx[idx], fy[idx], wn, hn);
+						glClear(GL_DEPTH_BUFFER_BIT);
+						glEnable(GL_LIGHTING);
+						glEnable(GL_LIGHT0);
+						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+						glEnable(GL_DEPTH_TEST);
+						glEnable(GL_COLOR_MATERIAL);
+		
+						glMatrixMode(GL_MODELVIEW);
+						draw_ellipsoids(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
+						
+						//disable lightning
+						glDisable(GL_LIGHTING);
 					}
 				}
 			}
-			
+		
 		//draw color legend for glyphs
 		if(color_dir == TRUE)
 		{
@@ -1078,6 +1267,7 @@ void reshape(int w, int h)
 	glLoadIdentity();
 	gluOrtho2D(0.0, (GLdouble)w, 0.0, (GLdouble)h);
 	winWidth = w; winHeight = h;
+	
 }
 
 //keyboard: Handle key presses
@@ -1195,7 +1385,18 @@ void keyboard(unsigned char key, int x, int y)
 			{
 				show_glyph_type = SHOW_HEDGEHOGS;
 			}
-			break;  
+			break;
+		case 'd': no_glyphs_x -= 5;
+			if(no_glyphs_x == 30)
+			{
+				no_glyphs_x = 50;
+			}
+		case 'D': no_glyphs_y -= 5;
+			if(no_glyphs_y == 30)
+			{
+				no_glyphs_y = 50;
+			}
+			break;    
 		case 'q': exit(0);
 	}
 }
@@ -1268,6 +1469,7 @@ int main(int argc, char **argv)
 	printf("l:     toggle the smoke hsv coloring on/off\n");
 	printf("L:     toggle the glyph hsv coloring on/off\n");
 	printf("z:     toggle thru glyphs types\n");
+	printf("d/D:   toggle thru glyphs number on x/y axis\n");
 	printf("q:     quit\n\n");
 
 	glutInit(&argc, argv);
