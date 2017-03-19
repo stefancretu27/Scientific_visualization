@@ -1,7 +1,7 @@
-OBJECTS     = fluids.o
+OBJECTS     = fluids.o visualization.o
 CFILES      = $(OBJECTS:.o=.c)
 EXECFILE    = smoke
-INCLUDEDIRS = -I./fftw-2.1.5/include/
+INCLUDEDIRS = -I./fftw-2.1.5/include/ -I.
 LIBDIRS     = -L./fftw-2.1.5/lib/
 LIBS        = -lglut -lrfftw -lfftw -lGL -lGLU -lm
 #Possible flags for release (ffast-math uses less precision for floating-point numbers, check that your application can handle this)
