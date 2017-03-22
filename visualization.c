@@ -8,25 +8,24 @@
 #include <GL/glut.h>            //the GLUT graphics library
 
 #include <fluids.h>
-#include <visualization.h>
+//#include <visualization.h>
 
 /*
  * External data: They are declared here but not instantiated. The memory allocation and initialization happens in fluids.c
  */
-extern int winWidth, winHeight; 
-extern float vec_scale;
- 
 //MATTER_GLOBALS          										//draw the matter (1) or not (0)extern 
 extern matter_attribute show_matter_attribute;							//default shown attribute
 extern colormap matter_color_type;        								//default method for smoke attributes coloring
 extern unsigned int matter_color_bands;									//default number of color bands
-
 
 //GLYPH_GLOBALS
 extern colormap glyph_color_type;         								//method for force&velocity coloring
 extern unsigned int glyph_color_bands;									//default number of color bands
 extern glyphs_attribute show_glyph_attribute;
 
+//functions used for setting colors. They're defined and implemented in fluids.c
+extern void set_colormap(float scalar_value);
+extern void direction_to_color(float x, float y, float value, unsigned short int type);
 
 /*
  * Helper functions section
@@ -292,14 +291,81 @@ float clamp_value( float value, float min, float max)
 	return value;
 }
 
+/* 
+ * Draw fluid/smoke/matter as a triangle mesh 
+ */
+void draw_matter_fluid_smoke(fftw_real wn, fftw_real hn, fftw_real *rho, fftw_real *vx, fftw_real *vy, fftw_real *fx, fftw_real *fy)
+{
+	int i, j, idx0, idx1, idx2, idx3;
+	double px0, py0, px1, py1, px2, py2, px3, py3;
+		
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glBegin(GL_TRIANGLES);
+		for (j = 0; j < DIM; j++)            //draw smoke
+		{
+			for (i = 0; i < DIM; i++)
+			{
+				px0 = wn + (fftw_real)i * wn;
+				py0 = hn + (fftw_real)j * hn;
+				idx0 = (j * DIM) + i;
+
+
+				px1 = wn + (fftw_real)i * wn;
+				py1 = hn + (fftw_real)(j + 1) * hn;
+				idx1 = ((j + 1) * DIM) + i;
+
+
+				px2 = wn + (fftw_real)(i + 1) * wn;
+				py2 = hn + (fftw_real)(j + 1) * hn;
+				idx2 = ((j + 1) * DIM) + (i + 1);
+
+
+				px3 = wn + (fftw_real)(i + 1) * wn;
+				py3 = hn + (fftw_real)j * hn;
+				idx3 = (j * DIM) + (i + 1);
+
+				if(show_matter_attribute == DENSITY)
+				{
+					draw_triangle_vertex( px0, py0, rho[idx0]);
+					draw_triangle_vertex( px1, py1, rho[idx1]);
+					draw_triangle_vertex( px2, py2, rho[idx2]);
+
+					draw_triangle_vertex( px0, py0, rho[idx0]);
+					draw_triangle_vertex( px2, py2, rho[idx2]);
+					draw_triangle_vertex( px3, py3, rho[idx3]);
+				}
+				
+				if(show_matter_attribute == VELOCITY_MAGNITUDE)
+				{
+					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px1, py1, vec_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
+
+					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px3, py3, vec_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
+				}
+				
+				if(show_matter_attribute == FORCE_MAGNITUDE)
+				{
+					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px1, py1, vec_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
+
+					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px3, py3, vec_magnitude(fx[idx3], fy[idx3])*F_SCALE_FACTOR);
+				}
+			}
+		}
+	glEnd();
+}
+
 /*
  * Functions used for drawing the color legends.
  */
  
-/* 
- * Draw color legend for smoke/fluid/matter/scalar
- */
-
+//Draw color legend for smoke/fluid/matter/scalar
 void draw_matter_color_legend()
 {
 	unsigned short int i;
@@ -381,7 +447,7 @@ void draw_matter_color_legend()
 /* 
  * Draw color legend for glyphs, when direction coloring is considered
  */
-void draw_glyph_color_legend()
+void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 {
 	unsigned short int i;
 	const unsigned short int max_displayable_values = 32;
@@ -455,7 +521,7 @@ void draw_glyph_color_legend()
  * 		   cell_width, cell_height" glyph's cell's dimensions (since the glyphs can be resized, they have their own cells, appart from the fluid)
  */
 //draw hedgehogs: vertical lines
-void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
 	//base point coordinates
 	float base_x = (fftw_real)x * cell_width + cell_width*1/2;
@@ -479,6 +545,7 @@ void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cel
 		scale_x = clamp_value(scale_x, cell_height/(4*cell_width*1/2), cell_height/(cell_width*1/2) );
 		scale_y = clamp_value(scale_y, cell_height/(4*(top_y-base_y)), cell_height/(top_y-base_y) );
 	}
+	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
 	else
 	{
 		top_y = base_y + cell_width*1/2; 
@@ -505,7 +572,7 @@ void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cel
 }
  
 //Draw 2D glyphs
-void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
 	//compute the vertices' coordinates
 	float right_x = (fftw_real)x * cell_width + cell_width*1/4;
@@ -541,7 +608,7 @@ void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cel
     glMatrixMode(GL_MODELVIEW);																	//it is applied to object coordinates
     glPushMatrix();       																		//clones the previous matrix and puts it on the stack for applying transformations
     glTranslatef(cx, cy, 0.0);																	//translate to world coordinates
-	glRotatef(angle, 0.0, 0.0, 1.0);																//rotate around Oz axis, in world coordinates (0,0,0)
+	glRotatef(angle, 0.0, 0.0, 1.0);															//rotate around Oz axis, in world coordinates (0,0,0)
 	glScalef(scale_x, scale_y, 1.0);
 	glTranslatef(-1*cx, -1*cy, 0.0);   					 										//translate to back to object coordinates
 	//draw glyph
@@ -555,7 +622,7 @@ void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cel
 		
 }
 
-void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
 	unsigned short int i;
 	int num_segments = 20;
@@ -600,7 +667,7 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
 }
 
 //Draw 3D glyphs
-void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)					
+void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)					
 {
 	//cone's height and base's radius
 	float base_radius = cell_width*1/2;
@@ -620,6 +687,7 @@ void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_w
 		base_scaling_factor = clamp_value(base_scaling_factor, cell_height/(4*base_radius), cell_height/(2*base_radius) );
 		height_scaling_factor = clamp_value(height_scaling_factor, cell_height/(4*height), cell_height/(2*height) );
 	}
+	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
 	else
 	{
 		base_scaling_factor = clamp_value(base_scaling_factor, cell_width/(4*base_radius), cell_width/(2*base_radius) );
@@ -641,7 +709,7 @@ void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_w
 	glPopMatrix();
 }
 
-void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
+void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
 	//compute the ellipsoid's center
 	float cx = (fftw_real)x * cell_width + cell_width*1/2;
@@ -659,6 +727,7 @@ void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float c
 		scale_x = clamp_value(scale_x, cell_width/(4*radius), cell_height/(2*radius) );
 		scale_y = clamp_value(scale_y, cell_height/(4*radius), cell_height/(2*radius) );
 	}
+	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
 	else
 	{
 		radius = cell_width*1/4;
@@ -679,4 +748,32 @@ void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float c
 	glutSolidSphere(radius, 30, 30);
 	//delete matrix from stack
 	glPopMatrix();
+}
+
+//Interpolation
+fftw_real linear_interpolation(int x1, fftw_real f_x1, int x2, fftw_real f_x2, float x)
+{
+	fftw_real result = (fftw_real) ((x - x1)/(x2-x1)*f_x1  + (x2-x)/(x2-x1)*f_x2);
+	return result;
+}
+
+fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, fftw_real *attribute)
+{
+	//compute cell's coordinates
+	int idx1 = (j*DIM) + i;
+	int idx2 = (j*DIM) + (i+1);
+	int idx3 = ((j + 1)*DIM) + i;
+	int idx4 = ((j + 1)*DIM) + (i+1);
+	//compute the point's coordinates
+	float x = i + x_offset, y  = j + y_offset;
+	
+	//compute the values of the basis function in the selected 4 points
+	fftw_real q11 = attribute[idx1], q12 = attribute[idx2], q21 = attribute[idx3], q22 = attribute[idx4];
+								
+	//interpolate on Ox axis
+	fftw_real r1 = linear_interpolation(i, q11, i+1, q12, x);
+	fftw_real r2 = linear_interpolation(i, q21, i+1, q22, x);
+								
+	//interpolate the results for the previous interpolations on Oy
+	return linear_interpolation(j, r1, j+1, r2, y);
 }

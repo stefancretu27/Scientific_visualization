@@ -12,7 +12,7 @@
 #include <visualization.h>
 
 //--- SIMULATION PARAMETERS ------------------------------------------------------------------------
-#define DIM 50
+
 unsigned short int no_glyphs_x = 50;
 unsigned short int no_glyphs_y = 50;
 double dt = 0.4;													//simulation time step
@@ -25,7 +25,7 @@ rfftwnd_plan plan_rc, plan_cr;  									//simulation domain discretization
 
 
 //--- VISUALIZATION PARAMETERS ---------------------------------------------------------------------
-int   winWidth, winHeight;      										//size of the graphics window, in pixels
+unsigned int winWidth, winHeight;      										//size of the graphics window, in pixels
 float vec_scale = 1000;													//scaling of hedgehogs
 bool frozen = FALSE;   													//toggles on/off the animation
 
@@ -349,74 +349,14 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 //visualize: This is the main visualization function
 void visualize(void)
 {
-	int        i, j, idx;
-	fftw_real  wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);   // Grid cell width
-	fftw_real  hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);  // Grid cell heigh
+	//compute grid's cells' width and height
+	fftw_real wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);
+	fftw_real hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);
 
 	if (draw_matter)
 	{	
-		int idx0, idx1, idx2, idx3;
-		double px0, py0, px1, py1, px2, py2, px3, py3;
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		glBegin(GL_TRIANGLES);
-		for (j = 0; j < DIM - 1; j++)            //draw smoke
-		{
-			for (i = 0; i < DIM - 1; i++)
-			{
-				px0 = wn + (fftw_real)i * wn;
-				py0 = hn + (fftw_real)j * hn;
-				idx0 = (j * DIM) + i;
-
-
-				px1 = wn + (fftw_real)i * wn;
-				py1 = hn + (fftw_real)(j + 1) * hn;
-				idx1 = ((j + 1) * DIM) + i;
-
-
-				px2 = wn + (fftw_real)(i + 1) * wn;
-				py2 = hn + (fftw_real)(j + 1) * hn;
-				idx2 = ((j + 1) * DIM) + (i + 1);
-
-
-				px3 = wn + (fftw_real)(i + 1) * wn;
-				py3 = hn + (fftw_real)j * hn;
-				idx3 = (j * DIM) + (i + 1);
-
-				if(show_matter_attribute == DENSITY)
-				{
-					draw_triangle_vertex( px0, py0, rho[idx0]);
-					draw_triangle_vertex( px1, py1, rho[idx1]);
-					draw_triangle_vertex( px2, py2, rho[idx2]);
-
-					draw_triangle_vertex( px0, py0, rho[idx0]);
-					draw_triangle_vertex( px2, py2, rho[idx2]);
-					draw_triangle_vertex( px3, py3, rho[idx3]);
-				}
-				
-				if(show_matter_attribute == VELOCITY_MAGNITUDE)
-				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
-
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
-				}
-				
-				if(show_matter_attribute == FORCE_MAGNITUDE)
-				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
-
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(fx[idx3], fy[idx3])*F_SCALE_FACTOR);
-				}
-			}
-		}
-		glEnd();
+		//draw fluid/smoke
+		draw_matter_fluid_smoke(wn, hn, rho, vx, vy, fx, fy);
 		
 		//draw color legend for matter
 		draw_matter_color_legend();
@@ -424,15 +364,44 @@ void visualize(void)
 
 	if (draw_vecs)		//draw vectors
 	{
-		fftw_real glyph_x_dim = (fftw_real)winWidth / (fftw_real)(no_glyphs_x);   // Grid cell width
-		fftw_real glyph_y_dim = (fftw_real)winHeight / (fftw_real)(no_glyphs_y);  // Grid cell heigh
+		int i, j, idx;
+		//compute glyph's max size on both axes
+		fftw_real glyph_x_dim = (fftw_real)winWidth / (fftw_real)(no_glyphs_x + 1);
+		fftw_real glyph_y_dim = (fftw_real)winHeight / (fftw_real)(no_glyphs_y + 1);
 		float magnitude = 0.0;
+		float dens, v_x, v_y, f_x, f_y;
 						
 		for (i = 0; i < no_glyphs_x; i++)
-			for (j = 2; j < no_glyphs_y-1; j++)
+			for (j = 2; j < no_glyphs_y; j++)									//don't overlap with color legends
 			{
 				idx = (j * DIM) + i;
-				
+
+				//if #glyphs does not change: each glyph corresponds to one grid cell => no interpolation
+				if( wn == glyph_x_dim && hn == glyph_y_dim)
+				{
+					dens = rho[idx];
+					v_x = vx[idx];
+					v_y = vy[idx];
+					f_x = fx[idx];
+					f_y = fy[idx];
+				}
+				else
+				{
+					//compute the ratio with which the glyphs increase
+					float x_offset = (glyph_x_dim/wn - 1), y_offset = (glyph_y_dim/hn - 1);
+						
+					//interpolate for rho
+					dens = bilinear_interpolation(i, j, x_offset, y_offset, rho);
+					//interpolate for vx
+					v_x = bilinear_interpolation(i, j, x_offset, y_offset, vx);
+					//interpolate for vy
+					v_y = bilinear_interpolation(i, j, x_offset, y_offset, vy);
+					//interpolate for vx
+					f_x = bilinear_interpolation(i, j, x_offset, y_offset, fx);
+					//interpolate for vy
+					f_y = bilinear_interpolation(i, j, x_offset, y_offset, fy);	
+				}
+
 				//choose vectorial attribute
 				if(show_glyph_attribute == VELOCITY)
 				{	
@@ -440,25 +409,25 @@ void visualize(void)
 					//glyphs are colored based on velocity direction
 					if(color_dir == TRUE)
 					{
-						direction_to_color(vx[idx], vy[idx], 0, GLYPH_TYPE);
+						direction_to_color(v_x, v_y, 0, GLYPH_TYPE);
 					}
 					else
 					{
 						//set the glyphs' color based on selected scalar field
 						if(show_matter_attribute == DENSITY)
 						{
-							set_colormap(rho[idx]);
+							set_colormap(dens);
 						}
 						else if(show_matter_attribute == VELOCITY_MAGNITUDE)
 						{
-							magnitude = vec_magnitude( vx[idx], vy[idx]);
+							magnitude = vec_magnitude( v_x, v_y);
 							magnitude *= V_SCALE_FACTOR;
 						
 							set_colormap(magnitude);
 						}
 						else if(show_matter_attribute == FORCE_MAGNITUDE)
 						{
-							magnitude = vec_magnitude( fx[idx], fy[idx]);
+							magnitude = vec_magnitude( f_x, f_y);
 							magnitude *= F_SCALE_FACTOR;
 						
 							set_colormap(magnitude);
@@ -469,7 +438,8 @@ void visualize(void)
 					if(show_glyph_type == HEDGEHOGS)
 					{
 						glMatrixMode(GL_MODELVIEW);
-						draw_hedgehog(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
+						draw_hedgehog(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
+						
 					}
 					else if(show_glyph_type == CONES)
 					{
@@ -487,7 +457,7 @@ void visualize(void)
 						glEnable(GL_COLOR_MATERIAL);
 		
 						glMatrixMode(GL_MODELVIEW);
-						draw_cones(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
+						draw_cones(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
 						
 						//disable lightning
 						glDisable(GL_LIGHTING);
@@ -502,7 +472,7 @@ void visualize(void)
 						glEnable(GL_COLOR_MATERIAL);
 		
 						glMatrixMode(GL_MODELVIEW);
-						draw_ellipsoids(i, j, vx[idx], vy[idx], glyph_x_dim, glyph_y_dim);
+						draw_ellipsoids(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
 						
 						//disable lightning
 						glDisable(GL_LIGHTING);
@@ -514,25 +484,25 @@ void visualize(void)
 					//glyphs are colored based on velocity direction
 					if(color_dir == TRUE)
 					{
-						direction_to_color(fx[idx], fy[idx], 0, GLYPH_TYPE);
+						direction_to_color(f_x, f_y, 0, GLYPH_TYPE);
 					}
 					else
 					{
 						//set the glyphs' color based on selected scalar field
 						if(show_matter_attribute == DENSITY)
 						{
-							set_colormap(rho[idx]);
+							set_colormap(dens);
 						}
 						else if(show_matter_attribute == VELOCITY_MAGNITUDE)
 						{
-							magnitude = vec_magnitude( vx[idx], vy[idx]);
+							magnitude = vec_magnitude( v_x, v_y);
 							magnitude *= V_SCALE_FACTOR;
 						
 							set_colormap(magnitude);
 						}
 						else if(show_matter_attribute == FORCE_MAGNITUDE)
 						{
-							magnitude = vec_magnitude( fx[idx], fy[idx]);
+							magnitude = vec_magnitude( f_x, f_y);
 							magnitude *= F_SCALE_FACTOR;
 						
 							set_colormap(magnitude);
@@ -542,7 +512,7 @@ void visualize(void)
 					if(show_glyph_type == HEDGEHOGS)
 					{
 						glMatrixMode(GL_MODELVIEW);
-						draw_hedgehog(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
+						draw_hedgehog(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
 					}
 					else if(show_glyph_type == CONES)
 					{
@@ -560,7 +530,7 @@ void visualize(void)
 						glEnable(GL_COLOR_MATERIAL);
 		
 						glMatrixMode(GL_MODELVIEW);
-						draw_cones(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
+						draw_cones(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
 						
 						//disable lightning
 						glDisable(GL_LIGHTING);
@@ -575,7 +545,7 @@ void visualize(void)
 						glEnable(GL_COLOR_MATERIAL);
 		
 						glMatrixMode(GL_MODELVIEW);
-						draw_ellipsoids(i, j, fx[idx], fy[idx], glyph_x_dim, glyph_y_dim);
+						draw_ellipsoids(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
 						
 						//disable lightning
 						glDisable(GL_LIGHTING);
@@ -586,7 +556,7 @@ void visualize(void)
 		//draw color legend for glyphs
 		if(color_dir == TRUE)
 		{
-			draw_glyph_color_legend();
+			draw_glyph_color_legend(winWidth, winHeight);
 		}
 		else
 		{
@@ -737,12 +707,12 @@ void keyboard(unsigned char key, int x, int y)
 			}
 			break;
 		case 'd': no_glyphs_x -= 5;
-			if(no_glyphs_x == 30)
+			if(no_glyphs_x == 25)
 			{
 				no_glyphs_x = 50;
 			}
 		case 'D': no_glyphs_y -= 5;
-			if(no_glyphs_y == 30)
+			if(no_glyphs_y == 25)
 			{
 				no_glyphs_y = 50;
 			}

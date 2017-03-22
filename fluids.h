@@ -4,6 +4,7 @@
 #ifndef GLOBALS
 #define GLOBALS
 
+#define DIM 50
 #define MAX_COLOR_BANDS 256
 #define max(x, y) x > y ? x : y
 #define min(x, y) x < y ? x : y
