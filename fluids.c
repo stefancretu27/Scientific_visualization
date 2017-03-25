@@ -25,9 +25,10 @@ rfftwnd_plan plan_rc, plan_cr;  									//simulation domain discretization
 
 
 //--- VISUALIZATION PARAMETERS ---------------------------------------------------------------------
-unsigned int winWidth, winHeight;      										//size of the graphics window, in pixels
+unsigned int winWidth, winHeight;      									//size of the graphics window, in pixels
 float vec_scale = 1000;													//scaling of hedgehogs
 bool frozen = FALSE;   													//toggles on/off the animation
+bool draw_glyph_grid = FALSE;
 
 //scalar-related global data: matter
 bool draw_matter = FALSE;           									//draw the matter (1) or not (0)
@@ -365,20 +366,39 @@ void visualize(void)
 	if (draw_vecs)		//draw vectors
 	{
 		int i, j, idx;
-		//compute glyph's max size on both axes
-		fftw_real glyph_x_dim = (fftw_real)winWidth / (fftw_real)(no_glyphs_x + 1);
-		fftw_real glyph_y_dim = (fftw_real)winHeight / (fftw_real)(no_glyphs_y + 1);
-		float magnitude = 0.0;
 		float dens, v_x, v_y, f_x, f_y;
+		float x_offset = 0, y_offset = 0;
+		
+		fftw_real x, y;
+		grid_cell cell;
+		
+		//compute the frequency of glyphs
+		fftw_real step_x = (fftw_real) DIM/no_glyphs_x;
+		fftw_real step_y = (fftw_real) DIM/no_glyphs_y;
+		
+		//printf("%f %f\n", step_x, step_y);
 						
-		for (i = 0; i < no_glyphs_x; i++)
-			for (j = 2; j < no_glyphs_y; j++)									//don't overlap with color legends
+		for (x = 0; x < DIM; x += step_x)
+			for (y = 2; y < DIM; y += step_y)									
 			{
-				idx = (j * DIM) + i;
-
-				//if #glyphs does not change: each glyph corresponds to one grid cell => no interpolation
-				if( wn == glyph_x_dim && hn == glyph_y_dim)
+				i = (int)x;
+				j = (int)y;
+				
+				//initialize cell grid
+				initialize_cell(&cell, wn, hn, x, y, step_x, step_y);
+				
+				//draw cell grid
+				if(draw_glyph_grid)
 				{
+					draw_cell(&cell);
+				}
+				
+				//Compute the attributes values in the given cell grid
+				//if #glyphs does not change: each glyph corresponds to one grid cell => no interpolation
+				if( step_x == 1 && step_y == 1)
+				{
+					idx = (j * DIM) + i;
+					
 					dens = rho[idx];
 					v_x = vx[idx];
 					v_y = vy[idx];
@@ -387,8 +407,9 @@ void visualize(void)
 				}
 				else
 				{
-					//compute the ratio with which the glyphs increase
-					float x_offset = (glyph_x_dim/wn - 1), y_offset = (glyph_y_dim/hn - 1);
+					//compute the ratio with which the glyphs increase. It is in [0;1]
+					x_offset = (step_x - 1);
+					y_offset = (step_y - 1);
 						
 					//interpolate for rho
 					dens = bilinear_interpolation(i, j, x_offset, y_offset, rho);
@@ -402,7 +423,7 @@ void visualize(void)
 					f_y = bilinear_interpolation(i, j, x_offset, y_offset, fy);	
 				}
 
-				//choose vectorial attribute
+				//choose vectorial attribute: velocity, force, gradients
 				if(show_glyph_attribute == VELOCITY)
 				{	
 					//choose glyphs' color
@@ -414,69 +435,11 @@ void visualize(void)
 					else
 					{
 						//set the glyphs' color based on selected scalar field
-						if(show_matter_attribute == DENSITY)
-						{
-							set_colormap(dens);
-						}
-						else if(show_matter_attribute == VELOCITY_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( v_x, v_y);
-							magnitude *= V_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
-						else if(show_matter_attribute == FORCE_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( f_x, f_y);
-							magnitude *= F_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
+						glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
 					}
 				
 					//choose glyphs' type
-					if(show_glyph_type == HEDGEHOGS)
-					{
-						glMatrixMode(GL_MODELVIEW);
-						draw_hedgehog(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
-						
-					}
-					else if(show_glyph_type == CONES)
-					{
-						glMatrixMode(GL_PROJECTION);						
-						glLoadIdentity ();
-						glOrtho(0, winWidth, 0, winHeight, -100, 100);
-						glDisable(GL_DEPTH_TEST);
-						glViewport(0,0,winWidth,winHeight);
-						
-						glClear(GL_DEPTH_BUFFER_BIT);
-						glEnable(GL_LIGHTING);
-						glEnable(GL_LIGHT0);
-						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
-						glEnable(GL_DEPTH_TEST);
-						glEnable(GL_COLOR_MATERIAL);
-		
-						glMatrixMode(GL_MODELVIEW);
-						draw_cones(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
-						
-						//disable lightning
-						glDisable(GL_LIGHTING);
-					}
-					else if(show_glyph_type == ELLIPSES)
-					{
-						glClear(GL_DEPTH_BUFFER_BIT);
-						glEnable(GL_LIGHTING);
-						glEnable(GL_LIGHT0);
-						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
-						glEnable(GL_DEPTH_TEST);
-						glEnable(GL_COLOR_MATERIAL);
-		
-						glMatrixMode(GL_MODELVIEW);
-						draw_ellipsoids(i, j, v_x, v_y, glyph_x_dim, glyph_y_dim, vec_scale);
-						
-						//disable lightning
-						glDisable(GL_LIGHTING);
-					}
+					draw_glyphs(cell, v_x, v_y, vec_scale);
 				}
 				
 				if(show_glyph_attribute == FORCE)
@@ -489,68 +452,68 @@ void visualize(void)
 					else
 					{
 						//set the glyphs' color based on selected scalar field
-						if(show_matter_attribute == DENSITY)
-						{
-							set_colormap(dens);
-						}
-						else if(show_matter_attribute == VELOCITY_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( v_x, v_y);
-							magnitude *= V_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
-						else if(show_matter_attribute == FORCE_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( f_x, f_y);
-							magnitude *= F_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
+						glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
 					}
 					
-					if(show_glyph_type == HEDGEHOGS)
-					{
-						glMatrixMode(GL_MODELVIEW);
-						draw_hedgehog(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
-					}
-					else if(show_glyph_type == CONES)
-					{
-						glMatrixMode(GL_PROJECTION);						
-						glLoadIdentity ();
-						glOrtho(0, winWidth, 0, winHeight, -100, 100);
-						glDisable(GL_DEPTH_TEST);
-						glViewport(0,0,winWidth,winHeight);
-						
-						glClear(GL_DEPTH_BUFFER_BIT);
-						glEnable(GL_LIGHTING);
-						glEnable(GL_LIGHT0);
-						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
-						glEnable(GL_DEPTH_TEST);
-						glEnable(GL_COLOR_MATERIAL);
-		
-						glMatrixMode(GL_MODELVIEW);
-						draw_cones(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
-						
-						//disable lightning
-						glDisable(GL_LIGHTING);
-					}
-					else if(show_glyph_type == ELLIPSES)
-					{
-						glClear(GL_DEPTH_BUFFER_BIT);
-						glEnable(GL_LIGHTING);
-						glEnable(GL_LIGHT0);
-						glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
-						glEnable(GL_DEPTH_TEST);
-						glEnable(GL_COLOR_MATERIAL);
-		
-						glMatrixMode(GL_MODELVIEW);
-						draw_ellipsoids(i, j, f_x, f_y, glyph_x_dim, glyph_y_dim, vec_scale);
-						
-						//disable lightning
-						glDisable(GL_LIGHTING);
-					}
+					//choose glyphs' type
+					draw_glyphs(cell, f_x, f_y, vec_scale);
 				}
+				
+				/*if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
+				{
+					//Part1: compute gradient
+					//compute cells' coordinates
+					int idx1 = (j*DIM) + i;
+					int idx2 = (j*DIM) + (i+1);
+					int idx3 = ((j + 1)*DIM) + i;
+					//int idx4 = ((j + 1)*DIM) + (i+1);
+					//compute the point's coordinates
+					//float s = i + x_offset, t  = j + y_offset;
+	
+					//compute the values in the sample points
+					fftw_real f1 = rho[idx1], f2 = rho[idx2], f3 = rho[idx3]; //f4 = rho[idx4];
+					
+					//gradient definition from the book
+					//float dfx = (1-s)*(f2-f1)/glyph_x_dim + s*(f4-f3)/glyph_x_dim;
+					//float dfy = (1-t)*(f3-f1)/glyph_y_dim + t*(f4-f2)/glyph_y_dim;
+					float dfx = f2-f1, dfy = f3-f1;
+					
+					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
+					
+					//Part3: choose glyphs' type
+					//dfx = dfx*5; dfy = dfy*5;
+					draw_glyphs(i, j, dfx*5, dfy*5, glyph_cell_x_dim, glyph_cell_y_dim, vec_scale);
+				}
+				
+				if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
+				{
+					//Part1: compute gradient
+					//compute cells' coordinates
+					int idx1 = (j*DIM) + i;
+					int idx2 = (j*DIM) + (i+1);
+					int idx3 = ((j + 1)*DIM) + i;
+					//int idx4 = ((j + 1)*DIM) + (i+1);
+					//compute the point's coordinates
+					//float s = i + x_offset, t  = j + y_offset;
+					
+					//compute the values in the sample points
+					fftw_real f1 = vec_magnitude(vx[idx1], vy[idx1]), f2 = vec_magnitude(vx[idx2], vy[idx2]);
+					fftw_real f3 = vec_magnitude(vx[idx3], vy[idx3]); // f4 = vec_magnitude(vx[idx4], vy[idx4]);
+					
+					//gradient definition from the book
+					//float dfx = (1-s)*(f2-f1)/glyph_x_dim + s*(f4-f3)/glyph_x_dim;
+					//float dfy = (1-t)*(f3-f1)/glyph_y_dim + t*(f4-f2)/glyph_y_dim;
+					float dfx = f2-f1, dfy = f3-f1;
+					
+					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
+					
+					//Part3: choose glyphs' type
+					//dfx = dfx*2; dfy = dfy*2;
+					draw_glyphs(i, j, dfx*5, dfy*5, glyph_cell_x_dim, glyph_cell_y_dim, vec_scale);
+				}
+				*/
 			}
 		
 		//draw color legend for glyphs
@@ -644,7 +607,7 @@ void keyboard(unsigned char key, int x, int y)
 			break;
 		case 'N':
 			show_glyph_attribute++;
-			if (show_glyph_attribute > FORCE)
+			if (show_glyph_attribute > VEL_MAGN_GRADIENT)
 			{
 				show_glyph_attribute = VELOCITY;
 			}
@@ -707,16 +670,19 @@ void keyboard(unsigned char key, int x, int y)
 			}
 			break;
 		case 'd': no_glyphs_x -= 5;
-			if(no_glyphs_x == 25)
+			if(no_glyphs_x == 20)
 			{
 				no_glyphs_x = 50;
 			}
+			break;
 		case 'D': no_glyphs_y -= 5;
-			if(no_glyphs_y == 25)
+			if(no_glyphs_y == 20)
 			{
 				no_glyphs_y = 50;
 			}
-			break;    
+			break;
+		case '`': draw_glyph_grid = 1 - draw_glyph_grid; 
+				break;    
 		case 'q': exit(0);
 	}
 }
@@ -779,7 +745,7 @@ int main(int argc, char **argv)
 	printf("m:     toggle thru scalar coloring\n");
 	printf("M:     toggle thru glyphs coloring (only when direction coloring is on)\n");
 	printf("n:     toggle thru scalar shown attributes (density, velocity magnitude, force magnitude) \n");
-	printf("N:     toggle thru vector shown attributes (velocity, force)\n");
+	printf("N:     toggle thru vector shown attributes (velocity, force, rho gradient, vel magnitude gradient)\n");
 	printf("b:     change color bands for smoke: 2->256\n");
 	printf("B:     change color bands for glyphs: 2->256 (only when direction coloring is on)\n");
 	printf("j:     toggle the smoke color map clamping on/off\n");

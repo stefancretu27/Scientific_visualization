@@ -1,19 +1,21 @@
 /*
  * Includes 
  */
-#include <rfftw.h>              //the numerical simulation FFTW 
+
 #include <stdio.h>              //for printing the help text
 
 #include <math.h>               //for various math functions #include
 #include <GL/glut.h>            //the GLUT graphics library
 
 #include <fluids.h>
-//#include <visualization.h>
+#include <visualization.h>
 
 /*
  * External data: They are declared here but not instantiated. The memory allocation and initialization happens in fluids.c
  */
-//MATTER_GLOBALS          										//draw the matter (1) or not (0)extern 
+extern unsigned int winWidth, winHeight; 
+ 
+//MATTER_GLOBALS          												//draw the matter (1) or not (0)
 extern matter_attribute show_matter_attribute;							//default shown attribute
 extern colormap matter_color_type;        								//default method for smoke attributes coloring
 extern unsigned int matter_color_bands;									//default number of color bands
@@ -22,10 +24,39 @@ extern unsigned int matter_color_bands;									//default number of color bands
 extern colormap glyph_color_type;         								//method for force&velocity coloring
 extern unsigned int glyph_color_bands;									//default number of color bands
 extern glyphs_attribute show_glyph_attribute;
+extern glyphs_type show_glyph_type;
 
 //functions used for setting colors. They're defined and implemented in fluids.c
 extern void set_colormap(float scalar_value);
 extern void direction_to_color(float x, float y, float value, unsigned short int type);
+
+/*
+ * Struct related functions
+ * Inputs: cell: the instance to grid cell structure
+ * 		   w, h: width and height of a cell grid, when it is not sampled/resized
+ * 		   step_x, step_y: represent how many times should the glyphs be increased on x and y, in order to cover the same area on the screen
+ * 		   i, j: cell indeces on the grid. They change everytime the grid is resized and are incremented with step_x/y
+ */ 
+void initialize_cell(grid_cell *cell, fftw_real w, fftw_real h, fftw_real i, fftw_real j, fftw_real step_x, fftw_real step_y)
+{
+	cell->width = step_x*w;
+	cell->height = step_y*h;
+	cell->x = i*w;
+	cell->y = j*h;
+}
+
+void draw_cell(grid_cell *cell)
+{
+    glLineWidth(1);																																					
+	//draw rectangle
+	glBegin(GL_LINE_LOOP);
+	glVertex2f(cell->x, cell->y);
+	glVertex2f(cell->x, cell->y + cell->height);
+	glVertex2f(cell->x + cell->width, cell->y + cell->height);
+	glVertex2f(cell->x + cell->width, cell->y);
+	glEnd();
+
+}
 
 /*
  * Helper functions section
@@ -521,57 +552,60 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
  * 		   cell_width, cell_height" glyph's cell's dimensions (since the glyphs can be resized, they have their own cells, appart from the fluid)
  */
 //draw hedgehogs: vertical lines
-void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
+void draw_hedgehog(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
 {
-	//base point coordinates
-	float base_x = (fftw_real)x * cell_width + cell_width*1/2;
-	float base_y = (fftw_real)y * cell_height;
 	//top point's coordinates
-	float top_x = base_x; 
-	float top_y;
+	float top_x = cell.x + cell.width*1/2; 
+	float top_y = cell.y;
+	
+	//base point coordinates
+	float base_x = top_x;
+	float base_y;
+	
+	//compute vector magnitude and scale it
+	float magnitude = vec_magnitude(attribute_x, attribute_y);
+	magnitude *= vec_scale/50;
+	
+	//rotation angle 
+	float angle = direction2angle(attribute_x, attribute_y);
 	
 	//scale factors for the top point
-	float scale_x = vec_scale * attribute_x;
-	float scale_y = vec_scale * attribute_y;
-	
+	float scale_x;
+	float scale_y;
 	
 	//maximum scale size is how many times  both x and y dimensions fit in the min(cell_height, cell_width)
 	//minimum size is half of the min(cell_height, cell_width)			 
-	if(cell_width >= cell_height)
+	if(cell.width >= cell.height)
 	{
-		top_y = base_y + cell_height*1/2;
-
-		//set hedgehog's height accordingly to the glyphs cell's dimensions
-		scale_x = clamp_value(scale_x, cell_height/(4*cell_width*1/2), cell_height/(cell_width*1/2) );
-		scale_y = clamp_value(scale_y, cell_height/(4*(top_y-base_y)), cell_height/(top_y-base_y) );
-	}
-	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
-	else
-	{
-		top_y = base_y + cell_width*1/2; 
+		base_y = cell.y - cell.height*3/4;
 		
 		//set hedgehog's height accordingly to the glyphs cell's dimensions
-		scale_x = clamp_value(scale_x, cell_width/(4*cell_width*1/2), cell_width/(cell_width*1/2) );
-		scale_y = clamp_value(scale_y, cell_width/(4*(top_y-base_y)), cell_width/(top_y-base_y) );
+		scale_x = clamp_value(magnitude, cell.width/(2*(top_y-base_y)),  cell.height/(top_y-base_y));
+		scale_y = clamp_value(magnitude, cell.height/(2*(top_y-base_y)), cell.height/(top_y-base_y));
 	}
-
-	float angle = direction2angle(attribute_x, attribute_y);
+	else
+	{
+		base_y = cell.y - cell.width*3/4;
+		//set hedgehog's height accordingly to the glyphs cell's dimensions
+		scale_x = clamp_value(magnitude, cell.width/(2*(top_y-base_y)), cell.width/(top_y-base_y));
+		scale_y = clamp_value(magnitude, cell.height/(2*(top_y-base_y)), cell.width/(top_y-base_y));
+	}
 	
     glPushMatrix();
     
-    glTranslatef(base_x, base_y, 0);
+    glTranslatef(top_x, top_y, 0);
 	glRotatef(angle, 0, 0, 1.0);
-	glScalef(scale_x, scale_y, 1.0);
-	glTranslatef(-1*base_x, -1*base_y, 1.0);					
+	glScalef(scale_x, 0.9*scale_y, 1.0);
+	glTranslatef(-1*top_x, -1*top_y, 1.0);					
 	glBegin(GL_LINES);
-	glVertex2f( base_x, base_y);
+	glVertex2f(base_x, base_y);
 	glVertex2f(top_x, top_y);
 	glEnd();
 	
 	glPopMatrix();
 }
  
-//Draw 2D glyphs
+//Draw 2D glyphs: Not updated, used initially for testing purpose
 void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
 	//compute the vertices' coordinates
@@ -667,31 +701,35 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
 }
 
 //Draw 3D glyphs
-void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)					
+void draw_cones(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)					
 {
 	//cone's height and base's radius
-	float base_radius = cell_width*1/2;
-	float height = cell_height;
-	
-	//scaling factors
-	float base_scaling_factor = vec_scale * attribute_x;
-	float height_scaling_factor = vec_scale * attribute_y;
+	float base_radius = cell.width*1/3;
+	float cone_height = cell.height;
 	
 	//compute the base's center
-	float cx = (fftw_real)x * cell_width + cell_width*1/2;
-	float cy =  (fftw_real)y * cell_height;
+	float cx = cell.x+ cell.width*1/2;
+	float cy =  cell.y;
 	
-	//clamp values so the ellipses won't overlap. They do not exceed the maximum size = cell_height
-	if(cell_width >= cell_height)
+	//scaling factors
+	float base_scaling_factor;
+	float height_scaling_factor;
+	
+	//compute vector magnitude and scale it
+	float magnitude = vec_magnitude(attribute_x, attribute_y);
+	magnitude *= vec_scale/100;
+	
+	//clamp values so the cones won't overlap (too much). They do not exceed the maximum size = cell_height
+	if(cell.width >= cell.height)
 	{
-		base_scaling_factor = clamp_value(base_scaling_factor, cell_height/(4*base_radius), cell_height/(2*base_radius) );
-		height_scaling_factor = clamp_value(height_scaling_factor, cell_height/(4*height), cell_height/(2*height) );
+		base_scaling_factor = clamp_value(magnitude, cell.height/(4*base_radius), cell.height/(2*base_radius));
+		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.height/(2*cone_height));
 	}
-	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
+	//cones do not exceed the maximum size = cell_width
 	else
 	{
-		base_scaling_factor = clamp_value(base_scaling_factor, cell_width/(4*base_radius), cell_width/(2*base_radius) );
-		height_scaling_factor = clamp_value(height_scaling_factor, cell_width/(4*height), cell_width/(2*height) );
+		base_scaling_factor = clamp_value(magnitude, cell.width/(4*base_radius), cell.width/(2*base_radius) );
+		height_scaling_factor = clamp_value(magnitude, cell.width/(4*cone_height), cell.width/(2*cone_height) );
 	} 
 				
 	float angle = direction2angle(attribute_x, attribute_y);				
@@ -704,36 +742,42 @@ void draw_cones(int x, int y, float attribute_x, float attribute_y, float cell_w
     glRotatef(180, 0, 1, 0);
     glRotatef(90, 1, 0, 0);										
     glScalef(base_scaling_factor, height_scaling_factor, 1.0);					
-	glutSolidCone(base_radius, height, 30, 30);
+	glutSolidCone(base_radius, cone_height, 30, 30);
 	//delete matrix from stack			
 	glPopMatrix();
 }
 
-void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
+void draw_ellipsoids(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
 {
 	//compute the ellipsoid's center
-	float cx = (fftw_real)x * cell_width + cell_width*1/2;
-	float cy =  (fftw_real)y * cell_height + cell_height*1/2;
+	float cx = cell.x + cell.width*1/2;
+	float cy = cell.y + cell.height*1/2;
+	
+	//compute vector magnitude and scale it
+	float magnitude = vec_magnitude(attribute_x, attribute_y);
+	magnitude *= vec_scale/100;
+	
 	//compute scaling factors
-	float scale_x = vec_scale * attribute_x;
-	float scale_y = vec_scale * attribute_y;
+	float scale_x;
+	float scale_y;
+	
 	//radius of the globe
 	float radius;
 	
-	if(cell_width >= cell_height)
+	if(cell.width >= cell.height)
 	{
-		radius = cell_height*1/4;
+		radius = cell.height*1/4;
 		
-		scale_x = clamp_value(scale_x, cell_width/(4*radius), cell_height/(2*radius) );
-		scale_y = clamp_value(scale_y, cell_height/(4*radius), cell_height/(2*radius) );
+		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.height/(2*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(8*radius), cell.height/(2*radius) );
 	}
 	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
 	else
 	{
-		radius = cell_width*1/4;
+		radius = cell.width*1/4;
 		
-		scale_x = clamp_value(scale_x, cell_width/(4*radius), cell_width/(2*radius) );
-		scale_y = clamp_value(scale_y, cell_height/(4*radius), cell_width/(2*radius) );
+		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.width/(2*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(8*radius), cell.width/(2*radius) );
 	}
 	
 	float theta = direction2angle(attribute_x, attribute_y);
@@ -750,6 +794,76 @@ void draw_ellipsoids(int x, int y, float attribute_x, float attribute_y, float c
 	glPopMatrix();
 }
 
+void draw_glyphs(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
+{	
+	if(show_glyph_type == HEDGEHOGS)
+	{
+		glMatrixMode(GL_MODELVIEW);
+		draw_hedgehog(cell, attribute_x, attribute_y, vec_scale);
+						
+	}
+	else if(show_glyph_type == CONES)
+	{
+		glMatrixMode(GL_PROJECTION);						
+		glLoadIdentity ();
+		glOrtho(0, winWidth, 0, winHeight, -100, 100);
+		glDisable(GL_DEPTH_TEST);
+										
+		glClear(GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_LIGHTING);
+		glEnable(GL_LIGHT0);
+		glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_COLOR_MATERIAL);
+		
+		glMatrixMode(GL_MODELVIEW);
+		draw_cones(cell, attribute_x, attribute_y, vec_scale);
+						
+		//disable lightning
+		glDisable(GL_LIGHTING);
+		}
+		else if(show_glyph_type == ELLIPSES)
+		{
+			glClear(GL_DEPTH_BUFFER_BIT);
+			glEnable(GL_LIGHTING);
+			glEnable(GL_LIGHT0);
+			glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+			glEnable(GL_DEPTH_TEST);
+			glEnable(GL_COLOR_MATERIAL);
+		
+			glMatrixMode(GL_MODELVIEW);
+			draw_ellipsoids( cell, attribute_x, attribute_y, vec_scale);
+						
+			//disable lightning
+			glDisable(GL_LIGHTING);
+		}
+}
+
+//set the glyphs' color based on selected scalar field
+void glyphs_scalar_color(float density, float vel_x, float vel_y, float force_x, float force_y)
+{
+	float magnitude = 0.0;
+	
+	if(show_matter_attribute == DENSITY)
+	{
+		set_colormap(density);
+	}
+	else if(show_matter_attribute == VELOCITY_MAGNITUDE)
+	{
+		magnitude = vec_magnitude( vel_x, vel_y);
+		magnitude *= V_SCALE_FACTOR;
+						
+		set_colormap(magnitude);
+	}
+	else if(show_matter_attribute == FORCE_MAGNITUDE)
+	{
+		magnitude = vec_magnitude( force_x, force_y);
+		magnitude *= F_SCALE_FACTOR;
+						
+		set_colormap(magnitude);
+	}				
+}
+
 //Interpolation
 fftw_real linear_interpolation(int x1, fftw_real f_x1, int x2, fftw_real f_x2, float x)
 {
@@ -759,21 +873,40 @@ fftw_real linear_interpolation(int x1, fftw_real f_x1, int x2, fftw_real f_x2, f
 
 fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, fftw_real *attribute)
 {
-	//compute cell's coordinates
+	//compute cells' coordinates
 	int idx1 = (j*DIM) + i;
 	int idx2 = (j*DIM) + (i+1);
 	int idx3 = ((j + 1)*DIM) + i;
 	int idx4 = ((j + 1)*DIM) + (i+1);
 	//compute the point's coordinates
-	float x = i + x_offset, y  = j + y_offset;
+	float s = i + x_offset, t  = j + y_offset;
 	
 	//compute the values of the basis function in the selected 4 points
 	fftw_real q11 = attribute[idx1], q12 = attribute[idx2], q21 = attribute[idx3], q22 = attribute[idx4];
 								
 	//interpolate on Ox axis
-	fftw_real r1 = linear_interpolation(i, q11, i+1, q12, x);
-	fftw_real r2 = linear_interpolation(i, q21, i+1, q22, x);
+	fftw_real r1 = linear_interpolation(i, q11, i+1, q12, s);
+	fftw_real r2 = linear_interpolation(i, q21, i+1, q22, s);
 								
 	//interpolate the results for the previous interpolations on Oy
-	return linear_interpolation(j, r1, j+1, r2, y);
+	return linear_interpolation(j, r1, j+1, r2, t);
 }
+
+/*void compute_gradient(int i, int j, float x_offset, float y_offset, fftw_real *attribute, float cell_width, float cell_height, float *dfx, float *dfy)
+{
+	//Part1: compute gradient
+	//compute cells' coordinates
+	int idx1 = (j*DIM) + i;
+	int idx2 = (j*DIM) + (i+1);
+	int idx3 = ((j + 1)*DIM) + i;
+	int idx4 = ((j + 1)*DIM) + (i+1);
+	//compute the point's coordinates
+	float s = i + x_offset, t  = j + y_offset;
+	
+	//compute the values in the sample points
+	fftw_real f1 = attribute[idx1], f2 = attribute[idx2], f3 = attribute[idx3], f4 = attribute[idx4];
+	
+	*dfx = (1-s)*(f2-f1)/cell_width + s*(f4-f3)/cell_width;
+	*dfy = (1-t)*(f3-f1)/cell_height + t*(f4-f2)/cell_height;
+}
+*/

@@ -11,11 +11,14 @@
 #define vec_magnitude(x, y) sqrt(x*x + y*y)
 #define V_SCALE_FACTOR 50
 #define F_SCALE_FACTOR 100
-#define MATTER_TYPE 0												//useful for drawing legend or colors, especially in the case of glyphs
+//useful for drawing legend or colors, especially in the case of glyphs
+#define MATTER_TYPE 0												
 #define GLYPH_TYPE 1
-#define LEGEND_TYPE 2  
+#define LEGEND_TYPE 2 
+//used for color bands 
 #define SCALAR 0
 #define VECTORIAL 1
+#define GRADIENT_SCALE_FACTOR 5
 
 #endif
 
@@ -48,7 +51,9 @@ typedef enum
 typedef enum
 {
 	VELOCITY,
-	FORCE
+	FORCE,
+	DENSITY_GRADIENT,
+	VEL_MAGN_GRADIENT
 }glyphs_attribute;
 
 //glyphs types
@@ -58,4 +63,3 @@ typedef enum
 	CONES,
 	ELLIPSES
 }glyphs_type;
-
