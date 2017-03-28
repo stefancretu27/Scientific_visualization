@@ -365,18 +365,22 @@ void visualize(void)
 
 	if (draw_vecs)		//draw vectors
 	{
-		int i, j, idx;
-		float dens, v_x, v_y, f_x, f_y;
-		float x_offset = 0, y_offset = 0;
-		
+		//variables used to iterate through grid cells and to create cells
 		fftw_real x, y;
 		grid_cell cell;
+		
+		//variables used to iterate through the data and to store the data for a give cell
+		int i, j, idx;
+		float dens, v_x, v_y, f_x, f_y;
 		
 		//compute the frequency of glyphs
 		fftw_real step_x = (fftw_real) DIM/no_glyphs_x;
 		fftw_real step_y = (fftw_real) DIM/no_glyphs_y;
 		
-		//printf("%f %f\n", step_x, step_y);
+		//compute the ratio with which the glyphs increase. It is in [0;1] because it represents the coordinates in the given cell.
+		// and shows how much the sampling point, a.k.a. lower left corner, has moved from the initial position
+		float x_offset = (step_x - 1);
+		float y_offset = (step_y - 1);
 						
 		for (x = 0; x < DIM; x += step_x)
 			for (y = 2; y < DIM; y += step_y)									
@@ -384,7 +388,7 @@ void visualize(void)
 				i = (int)x;
 				j = (int)y;
 				
-				//initialize cell grid
+				//initialize cell grid. Used to position glyphs on the visualization window
 				initialize_cell(&cell, wn, hn, x, y, step_x, step_y);
 				
 				//draw cell grid
@@ -407,10 +411,8 @@ void visualize(void)
 				}
 				else
 				{
-					//compute the ratio with which the glyphs increase. It is in [0;1]
-					x_offset = (step_x - 1);
-					y_offset = (step_y - 1);
-						
+					//It is assumed that when the glyph increase in size, they don't exceed more than 4 grid cells from the initial/original/default grid
+					
 					//interpolate for rho
 					dens = bilinear_interpolation(i, j, x_offset, y_offset, rho);
 					//interpolate for vx
@@ -459,31 +461,29 @@ void visualize(void)
 					draw_glyphs(cell, f_x, f_y, vec_scale);
 				}
 				
-				/*if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
+				if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
 				{
 					//Part1: compute gradient
 					//compute cells' coordinates
 					int idx1 = (j*DIM) + i;
 					int idx2 = (j*DIM) + (i+1);
 					int idx3 = ((j + 1)*DIM) + i;
-					//int idx4 = ((j + 1)*DIM) + (i+1);
-					//compute the point's coordinates
-					//float s = i + x_offset, t  = j + y_offset;
-	
+					int idx4 = ((j + 1)*DIM) + (i+1);
+					
 					//compute the values in the sample points
-					fftw_real f1 = rho[idx1], f2 = rho[idx2], f3 = rho[idx3]; //f4 = rho[idx4];
+					fftw_real f1 = rho[idx1], f2 = rho[idx2], f3 = rho[idx3], f4 = rho[idx4];
 					
 					//gradient definition from the book
-					//float dfx = (1-s)*(f2-f1)/glyph_x_dim + s*(f4-f3)/glyph_x_dim;
-					//float dfy = (1-t)*(f3-f1)/glyph_y_dim + t*(f4-f2)/glyph_y_dim;
-					float dfx = f2-f1, dfy = f3-f1;
+					//float glyph_x_dim = step_x*wn, glyph_y_dim = step_y*hn;
+					float dfx = (1-x_offset)*(f2-f1)/step_x + x_offset*(f4-f3)/step_x;
+					float dfy = (1-y_offset)*(f3-f1)/step_y + y_offset*(f4-f2)/step_y;
+					//float dfx = f2-f1, dfy = f3-f1;
 					
 					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
 					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
 					
 					//Part3: choose glyphs' type
-					//dfx = dfx*5; dfy = dfy*5;
-					draw_glyphs(i, j, dfx*5, dfy*5, glyph_cell_x_dim, glyph_cell_y_dim, vec_scale);
+					draw_glyphs(cell, dfx*5, dfy*5, vec_scale);
 				}
 				
 				if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
@@ -493,27 +493,23 @@ void visualize(void)
 					int idx1 = (j*DIM) + i;
 					int idx2 = (j*DIM) + (i+1);
 					int idx3 = ((j + 1)*DIM) + i;
-					//int idx4 = ((j + 1)*DIM) + (i+1);
-					//compute the point's coordinates
-					//float s = i + x_offset, t  = j + y_offset;
+					int idx4 = ((j + 1)*DIM) + (i+1);
 					
 					//compute the values in the sample points
-					fftw_real f1 = vec_magnitude(vx[idx1], vy[idx1]), f2 = vec_magnitude(vx[idx2], vy[idx2]);
-					fftw_real f3 = vec_magnitude(vx[idx3], vy[idx3]); // f4 = vec_magnitude(vx[idx4], vy[idx4]);
+					fftw_real f1 = vector_magnitude(vx[idx1], vy[idx1]), f2 = vector_magnitude(vx[idx2], vy[idx2]);
+					fftw_real f3 = vector_magnitude(vx[idx3], vy[idx3]), f4 = vector_magnitude(vx[idx4], vy[idx4]);
 					
 					//gradient definition from the book
-					//float dfx = (1-s)*(f2-f1)/glyph_x_dim + s*(f4-f3)/glyph_x_dim;
-					//float dfy = (1-t)*(f3-f1)/glyph_y_dim + t*(f4-f2)/glyph_y_dim;
-					float dfx = f2-f1, dfy = f3-f1;
+					float dfx = (1-x_offset)*(f2-f1)/step_x + x_offset*(f4-f3)/step_x;
+					float dfy = (1-y_offset)*(f3-f1)/step_y + y_offset*(f4-f2)/step_y;
+					//float dfx = f2-f1, dfy = f3-f1;
 					
 					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
 					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
 					
 					//Part3: choose glyphs' type
-					//dfx = dfx*2; dfy = dfy*2;
-					draw_glyphs(i, j, dfx*5, dfy*5, glyph_cell_x_dim, glyph_cell_y_dim, vec_scale);
+					draw_glyphs(cell, dfx*5, dfy*5, vec_scale);
 				}
-				*/
 			}
 		
 		//draw color legend for glyphs

@@ -6,6 +6,7 @@
 
 #include <math.h>               //for various math functions #include
 #include <GL/glut.h>            //the GLUT graphics library
+#include </usr/include/GL/freeglut.h>
 
 #include <fluids.h>
 #include <visualization.h>
@@ -61,6 +62,11 @@ void draw_cell(grid_cell *cell)
 /*
  * Helper functions section
  */
+
+fftw_real vector_magnitude(fftw_real x, fftw_real y)
+{
+	return (fftw_real) sqrt(x*x + y*y);
+}
 
 //Helper function to clamp inputed value to [0;1]
 void clamp_value_to_01(float *value)
@@ -415,21 +421,21 @@ void draw_matter_color_legend()
 		sprintf(buffer2, "%s", "Scalar: density");
 		glRasterPos2f(0, 40);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
+		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10,(const unsigned char*) buffer2);
 	}
 	else if(show_matter_attribute == VELOCITY_MAGNITUDE)
 	{
 		sprintf(buffer2, "%s", "Scalar: velocity magnitude");
 		glRasterPos2f(0, 40);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
+		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*)buffer2);
 	}
 	else if(show_matter_attribute == FORCE_MAGNITUDE)
 	{
 		sprintf(buffer2, "%s", "Scalar: force magnitude");
 		glRasterPos2f(0, 40);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
+		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*)buffer2);
 	}
 	
 	for(i = 0; i <= matter_color_bands; i++)
@@ -457,7 +463,7 @@ void draw_matter_color_legend()
 		{
 			glRasterPos2f(i*x_size, 30);
 			glColor3f(1.0f, 1.0f, 1.0f);
-			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 		}
 		//Thus, for color bands higher than 32 there are displayed only 32 values
 		else
@@ -468,7 +474,7 @@ void draw_matter_color_legend()
 			{
 				glRasterPos2f(i*x_size, 30);
 				glColor3f(1.0f, 1.0f, 1.0f);
-				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 			}
 		}
 		//end of text displaying
@@ -495,14 +501,14 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 		sprintf(buffer2, "%s", "Vector field: velocity");
 		glRasterPos2f(0, winHeight-40);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
+		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer2);
 	}
 	else if(show_glyph_attribute == FORCE)
 	{
 		sprintf(buffer2, "%s", "Vector field: force");
 		glRasterPos2f(0, winHeight-40);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
+		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer2);
 	}
 	
 	for(i = 0; i <= glyph_color_bands; i++)
@@ -528,7 +534,7 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 		{
 			glRasterPos2f(i*x_size, winHeight-30);
 			glColor3f(0.8f, 0.8f, 0.8f);
-			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 		}
 		else
 		{
@@ -538,7 +544,7 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 			{
 				glRasterPos2f(i*x_size, winHeight-30);
 				glColor3f(1.0f, 1.0f, 1.0f);
-				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
+				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 			}
 		}
 	}
@@ -722,14 +728,14 @@ void draw_cones(grid_cell cell, float attribute_x, float attribute_y, float vec_
 	//clamp values so the cones won't overlap (too much). They do not exceed the maximum size = cell_height
 	if(cell.width >= cell.height)
 	{
-		base_scaling_factor = clamp_value(magnitude, cell.height/(4*base_radius), cell.height/(2*base_radius));
+		base_scaling_factor = clamp_value(magnitude, cell.width/(4*base_radius), cell.height/(2*base_radius));
 		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.height/(2*cone_height));
 	}
 	//cones do not exceed the maximum size = cell_width
 	else
 	{
 		base_scaling_factor = clamp_value(magnitude, cell.width/(4*base_radius), cell.width/(2*base_radius) );
-		height_scaling_factor = clamp_value(magnitude, cell.width/(4*cone_height), cell.width/(2*cone_height) );
+		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.width/(2*cone_height) );
 	} 
 				
 	float angle = direction2angle(attribute_x, attribute_y);				
@@ -864,13 +870,47 @@ void glyphs_scalar_color(float density, float vel_x, float vel_y, float force_x,
 	}				
 }
 
-//Interpolation
+/*
+ * Interpolation
+ */
+ 
+//Linear interpolation used for the initial version of the bilinear interpolation 
 fftw_real linear_interpolation(int x1, fftw_real f_x1, int x2, fftw_real f_x2, float x)
 {
 	fftw_real result = (fftw_real) ((x - x1)/(x2-x1)*f_x1  + (x2-x)/(x2-x1)*f_x2);
 	return result;
 }
 
+/*
+ * Inputs: i, j = coordinates of the grid cell in the original/initial/default grid
+ * 		   x_offset, y_offset = how much a glyph moved from the original/initial position
+ * 		   *attribute = array of data that needs to be interpolated
+ */ 
+
+//initial version
+fftw_real bilinear_interpolation_initial(int i, int j, float x_offset, float y_offset, fftw_real *attribute)
+{
+	//compute cells' coordinates
+	int idx1 = (j*DIM) + i;
+	int idx2 = (j*DIM) + (i+1);
+	int idx3 = ((j + 1)*DIM) + i;
+	int idx4 = ((j + 1)*DIM) + (i+1);
+	
+	//compute the values of the attribute in the selected 4 points
+	fftw_real f11 = attribute[idx1], f12 = attribute[idx2], f21 = attribute[idx3], f22 = attribute[idx4];
+	
+	//compute the point's coordinates in the given cell
+	float s = i + x_offset, t  = j + y_offset;
+	
+	//interpolate on Ox axis
+	fftw_real r1 = linear_interpolation(i, f11, i+1, f12, s);
+	fftw_real r2 = linear_interpolation(i, f21, i+1, f22, s);
+								
+	//interpolate the results for the previous interpolations on Oy
+	return linear_interpolation(j, r1, j+1, r2, t);
+}
+
+//currently used version based on the model provided in book, chapter 3.2
 fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, fftw_real *attribute)
 {
 	//compute cells' coordinates
@@ -878,19 +918,17 @@ fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, f
 	int idx2 = (j*DIM) + (i+1);
 	int idx3 = ((j + 1)*DIM) + i;
 	int idx4 = ((j + 1)*DIM) + (i+1);
-	//compute the point's coordinates
-	float s = i + x_offset, t  = j + y_offset;
 	
-	//compute the values of the basis function in the selected 4 points
-	fftw_real q11 = attribute[idx1], q12 = attribute[idx2], q21 = attribute[idx3], q22 = attribute[idx4];
-								
-	//interpolate on Ox axis
-	fftw_real r1 = linear_interpolation(i, q11, i+1, q12, s);
-	fftw_real r2 = linear_interpolation(i, q21, i+1, q22, s);
-								
-	//interpolate the results for the previous interpolations on Oy
-	return linear_interpolation(j, r1, j+1, r2, t);
-}
+	//compute the values of the attribute in the selected 4 points
+	fftw_real f11 = attribute[idx1], f12 = attribute[idx2], f21 = attribute[idx3], f22 = attribute[idx4];
+	
+	//compute the basis function values (linear basis functions)
+	fftw_real q11 = (1-x_offset)*(1-y_offset), q12 = x_offset*(1-y_offset), q21 = x_offset*y_offset, q22 = (1-x_offset)*y_offset; 
+	
+	//return the interpolation result: "weighted sum of the basis functions, where the weights are the sample values"
+	return f11*q11 + f12*q12 + f21*q21 + f22*q22;
+}								
+
 
 /*void compute_gradient(int i, int j, float x_offset, float y_offset, fftw_real *attribute, float cell_width, float cell_height, float *dfx, float *dfy)
 {

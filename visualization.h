@@ -25,6 +25,7 @@ void draw_cell(grid_cell *cell);
 void clamp_value_to_01(float *value);
 void draw_triangle_vertex( double x, double y, float color_value);
 float direction2angle(float x, float y);
+fftw_real vector_magnitude(fftw_real vx, fftw_real vy);
 
 /* 
  * Functions implemented for step 2. 
