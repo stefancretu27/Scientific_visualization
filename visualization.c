@@ -38,12 +38,12 @@ extern void direction_to_color(float x, float y, float value, unsigned short int
  * 		   step_x, step_y: represent how many times should the glyphs be increased on x and y, in order to cover the same area on the screen
  * 		   i, j: cell indeces on the grid. They change everytime the grid is resized and are incremented with step_x/y
  */ 
-void initialize_cell(grid_cell *cell, fftw_real w, fftw_real h, fftw_real i, fftw_real j, fftw_real step_x, fftw_real step_y)
+void initialize_cell(grid_cell *cell, fftw_real w, fftw_real h, vector iterator, vector step)
 {
-	cell->width = step_x*w;
-	cell->height = step_y*h;
-	cell->x = i*w;
-	cell->y = j*h;
+	cell->width = step.x*w;
+	cell->height = step.y*h;
+	cell->x = iterator.x*w;
+	cell->y = iterator.y*h;
 }
 
 void draw_cell(grid_cell *cell)
@@ -91,7 +91,7 @@ void draw_triangle_vertex( double x, double y, float color_value)
 //compute the angle between the vector and the Ox axis
 float direction2angle(float x, float y)			
 {
-	float n = vec_magnitude(x, y); 
+	float n = vector_magnitude(x, y); 
 	
 	//normalize the vector
 	if (n<1.0e-6) 
@@ -374,24 +374,24 @@ void draw_matter_fluid_smoke(fftw_real wn, fftw_real hn, fftw_real *rho, fftw_re
 				
 				if(show_matter_attribute == VELOCITY_MAGNITUDE)
 				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px0, py0, vector_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px1, py1, vector_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vector_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
 
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px0, py0, vector_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vector_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
+					draw_triangle_vertex( px3, py3, vector_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
 				}
 				
 				if(show_matter_attribute == FORCE_MAGNITUDE)
 				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px0, py0, vector_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px1, py1, vector_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vector_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
 
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(fx[idx3], fy[idx3])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px0, py0, vector_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px2, py2, vector_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
+					draw_triangle_vertex( px3, py3, vector_magnitude(fx[idx3], fy[idx3])*F_SCALE_FACTOR);
 				}
 			}
 		}
@@ -558,7 +558,7 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
  * 		   cell_width, cell_height" glyph's cell's dimensions (since the glyphs can be resized, they have their own cells, appart from the fluid)
  */
 //draw hedgehogs: vertical lines
-void draw_hedgehog(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
+void draw_hedgehog(grid_cell cell, vector data, float vec_scale)
 {
 	//top point's coordinates
 	float top_x = cell.x + cell.width*1/2; 
@@ -568,12 +568,12 @@ void draw_hedgehog(grid_cell cell, float attribute_x, float attribute_y, float v
 	float base_x = top_x;
 	float base_y;
 	
-	//compute vector magnitude and scale it
-	float magnitude = vec_magnitude(attribute_x, attribute_y);
-	magnitude *= vec_scale/50;
-	
 	//rotation angle 
-	float angle = direction2angle(attribute_x, attribute_y);
+	float angle = direction2angle(data.x, data.y);
+	
+	//compute vector magnitude and scale it
+	float magnitude = vector_magnitude(data.x, data.y);
+	magnitude *= vec_scale/50;
 	
 	//scale factors for the top point
 	float scale_x;
@@ -707,7 +707,7 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
 }
 
 //Draw 3D glyphs
-void draw_cones(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)					
+void draw_cones(grid_cell cell, vector data, float vec_scale)					
 {
 	//cone's height and base's radius
 	float base_radius = cell.width*1/3;
@@ -717,28 +717,29 @@ void draw_cones(grid_cell cell, float attribute_x, float attribute_y, float vec_
 	float cx = cell.x+ cell.width*1/2;
 	float cy =  cell.y;
 	
+	//rotation angle
+	float angle = direction2angle(data.x, data.y);
+	
+	//compute vector magnitude and scale it
+	float magnitude = vector_magnitude(data.x, data.y);
+	magnitude *= vec_scale/100;
+	
 	//scaling factors
 	float base_scaling_factor;
 	float height_scaling_factor;
 	
-	//compute vector magnitude and scale it
-	float magnitude = vec_magnitude(attribute_x, attribute_y);
-	magnitude *= vec_scale/100;
-	
 	//clamp values so the cones won't overlap (too much). They do not exceed the maximum size = cell_height
 	if(cell.width >= cell.height)
 	{
-		base_scaling_factor = clamp_value(magnitude, cell.width/(4*base_radius), cell.height/(2*base_radius));
+		base_scaling_factor = clamp_value(magnitude, cell.width/(6*base_radius), cell.height/(2*base_radius));
 		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.height/(2*cone_height));
 	}
 	//cones do not exceed the maximum size = cell_width
 	else
 	{
-		base_scaling_factor = clamp_value(magnitude, cell.width/(4*base_radius), cell.width/(2*base_radius) );
+		base_scaling_factor = clamp_value(magnitude, cell.width/(6*base_radius), cell.width/(2*base_radius) );
 		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.width/(2*cone_height) );
-	} 
-				
-	float angle = direction2angle(attribute_x, attribute_y);				
+	} 				
 	
 	//glMatrixMode(GL_MODELVIEW);
     //push the current matrix on stack and perform transformations
@@ -753,15 +754,18 @@ void draw_cones(grid_cell cell, float attribute_x, float attribute_y, float vec_
 	glPopMatrix();
 }
 
-void draw_ellipsoids(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
+void draw_ellipsoids(grid_cell cell, vector data, float vec_scale)
 {
 	//compute the ellipsoid's center
 	float cx = cell.x + cell.width*1/2;
 	float cy = cell.y + cell.height*1/2;
 	
 	//compute vector magnitude and scale it
-	float magnitude = vec_magnitude(attribute_x, attribute_y);
+	float magnitude = vector_magnitude(data.x, data.y);
 	magnitude *= vec_scale/100;
+	
+	//rotation angle
+	float angle = direction2angle(data.x, data.y);
 	
 	//compute scaling factors
 	float scale_x;
@@ -775,7 +779,7 @@ void draw_ellipsoids(grid_cell cell, float attribute_x, float attribute_y, float
 		radius = cell.height*1/4;
 		
 		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.height/(2*radius) );
-		scale_y = clamp_value(magnitude, cell.height/(8*radius), cell.height/(2*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.height/(2*radius) );
 	}
 	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
 	else
@@ -783,29 +787,27 @@ void draw_ellipsoids(grid_cell cell, float attribute_x, float attribute_y, float
 		radius = cell.width*1/4;
 		
 		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.width/(2*radius) );
-		scale_y = clamp_value(magnitude, cell.height/(8*radius), cell.width/(2*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.width/(2*radius) );
 	}
-	
-	float theta = direction2angle(attribute_x, attribute_y);
 
 	//glMatrixMode(GL_MODELVIEW);
 
 	//push the current matrix on stack and perform transformations
 	glPushMatrix();
 	glTranslatef(cx, cy, 0);
-	glRotatef(theta, 0, 0, 1.0);
+	glRotatef(angle, 0, 0, 1.0);
 	glScalef(scale_x, scale_y, 1.0);
 	glutSolidSphere(radius, 30, 30);
 	//delete matrix from stack
 	glPopMatrix();
 }
 
-void draw_glyphs(grid_cell cell, float attribute_x, float attribute_y, float vec_scale)
+void draw_glyphs(grid_cell cell, vector data, float vec_scale)
 {	
 	if(show_glyph_type == HEDGEHOGS)
 	{
 		glMatrixMode(GL_MODELVIEW);
-		draw_hedgehog(cell, attribute_x, attribute_y, vec_scale);
+		draw_hedgehog(cell, data, vec_scale);
 						
 	}
 	else if(show_glyph_type == CONES)
@@ -823,7 +825,7 @@ void draw_glyphs(grid_cell cell, float attribute_x, float attribute_y, float vec
 		glEnable(GL_COLOR_MATERIAL);
 		
 		glMatrixMode(GL_MODELVIEW);
-		draw_cones(cell, attribute_x, attribute_y, vec_scale);
+		draw_cones(cell, data, vec_scale);
 						
 		//disable lightning
 		glDisable(GL_LIGHTING);
@@ -838,7 +840,7 @@ void draw_glyphs(grid_cell cell, float attribute_x, float attribute_y, float vec
 			glEnable(GL_COLOR_MATERIAL);
 		
 			glMatrixMode(GL_MODELVIEW);
-			draw_ellipsoids( cell, attribute_x, attribute_y, vec_scale);
+			draw_ellipsoids(cell, data, vec_scale);
 						
 			//disable lightning
 			glDisable(GL_LIGHTING);
@@ -846,7 +848,7 @@ void draw_glyphs(grid_cell cell, float attribute_x, float attribute_y, float vec
 }
 
 //set the glyphs' color based on selected scalar field
-void glyphs_scalar_color(float density, float vel_x, float vel_y, float force_x, float force_y)
+void glyphs_scalar_color(float density, vector velocity, vector force)
 {
 	float magnitude = 0.0;
 	
@@ -856,14 +858,14 @@ void glyphs_scalar_color(float density, float vel_x, float vel_y, float force_x,
 	}
 	else if(show_matter_attribute == VELOCITY_MAGNITUDE)
 	{
-		magnitude = vec_magnitude( vel_x, vel_y);
+		magnitude = vector_magnitude( velocity.x, velocity.y);
 		magnitude *= V_SCALE_FACTOR;
 						
 		set_colormap(magnitude);
 	}
 	else if(show_matter_attribute == FORCE_MAGNITUDE)
 	{
-		magnitude = vec_magnitude( force_x, force_y);
+		magnitude = vector_magnitude( force.x, force.y);
 		magnitude *= F_SCALE_FACTOR;
 						
 		set_colormap(magnitude);
@@ -911,7 +913,7 @@ fftw_real bilinear_interpolation_initial(int i, int j, float x_offset, float y_o
 }
 
 //currently used version based on the model provided in book, chapter 3.2
-fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, fftw_real *attribute)
+fftw_real bilinear_interpolation(int i, int j, point data_point, fftw_real *attribute)
 {
 	//compute cells' coordinates
 	int idx1 = (j*DIM) + i;
@@ -923,14 +925,14 @@ fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, f
 	fftw_real f11 = attribute[idx1], f12 = attribute[idx2], f21 = attribute[idx3], f22 = attribute[idx4];
 	
 	//compute the basis function values (linear basis functions)
-	fftw_real q11 = (1-x_offset)*(1-y_offset), q12 = x_offset*(1-y_offset), q21 = x_offset*y_offset, q22 = (1-x_offset)*y_offset; 
+	fftw_real q11 = (1 - data_point.r) * (1 - data_point.s), q12 = data_point.r * (1 - data_point.s); 
+	fftw_real q21 = data_point.r * data_point.s, q22 = (1 - data_point.r) * data_point.s; 
 	
 	//return the interpolation result: "weighted sum of the basis functions, where the weights are the sample values"
 	return f11*q11 + f12*q12 + f21*q21 + f22*q22;
 }								
 
-
-/*void compute_gradient(int i, int j, float x_offset, float y_offset, fftw_real *attribute, float cell_width, float cell_height, float *dfx, float *dfy)
+void compute_density_gradient(int i, int j, vector step, point data_point, fftw_real *density, vector *gradient)
 {
 	//Part1: compute gradient
 	//compute cells' coordinates
@@ -938,13 +940,27 @@ fftw_real bilinear_interpolation(int i, int j, float x_offset, float y_offset, f
 	int idx2 = (j*DIM) + (i+1);
 	int idx3 = ((j + 1)*DIM) + i;
 	int idx4 = ((j + 1)*DIM) + (i+1);
-	//compute the point's coordinates
-	float s = i + x_offset, t  = j + y_offset;
 	
 	//compute the values in the sample points
-	fftw_real f1 = attribute[idx1], f2 = attribute[idx2], f3 = attribute[idx3], f4 = attribute[idx4];
+	fftw_real f1 = density[idx1], f2 = density[idx2], f3 = density[idx3], f4 = density[idx4];
 	
-	*dfx = (1-s)*(f2-f1)/cell_width + s*(f4-f3)/cell_width;
-	*dfy = (1-t)*(f3-f1)/cell_height + t*(f4-f2)/cell_height;
+	(*gradient).x = (1 - data_point.r)*(f2 - f1)/step.x + data_point.r*(f4 - f3)/step.x;
+	(*gradient).y = (1 - data_point.s)*(f3 - f1)/step.y + data_point.s*(f4 - f2)/step.y;
 }
-*/
+
+void compute_velocity_magnitude_gradient(int i, int j, vector step, point data_point, fftw_real *vx, fftw_real *vy, vector *gradient)
+{
+	//compute cells' coordinates
+	int idx1 = (j*DIM) + i;
+	int idx2 = (j*DIM) + (i+1);
+	int idx3 = ((j + 1)*DIM) + i;
+	int idx4 = ((j + 1)*DIM) + (i+1);
+					
+	//compute the values in the sample points
+	fftw_real f1 = vector_magnitude(vx[idx1], vy[idx1]), f2 = vector_magnitude(vx[idx2], vy[idx2]);
+	fftw_real f3 = vector_magnitude(vx[idx3], vy[idx3]), f4 = vector_magnitude(vx[idx4], vy[idx4]);
+					
+	//gradient definition from the book
+	(*gradient).x = (1 - data_point.r)*(f2 - f1)/step.x + data_point.r*(f4 - f3)/step.x;
+	(*gradient).y = (1 - data_point.s)*(f3 - f1)/step.y + data_point.s*(f4 - f2)/step.y;
+}

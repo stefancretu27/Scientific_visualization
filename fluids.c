@@ -284,7 +284,7 @@ void set_colormap(float scalar_value)
 }
 
 //direction_to_color: Set the current color by mapping a direction vector (x,y) for the glyphs
-void direction_to_color(float x, float y, float value, unsigned short int type)
+void direction_to_color(vector vec, float value, unsigned short int type)
 {
 	float r, g, b, h, s, v, color_value;
 	
@@ -292,7 +292,7 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	if(type == GLYPH_TYPE)
 	{
 		//compute the value whose color is to be set
-		color_value = atan2(y,x)/M_PI + 1;
+		color_value = atan2(vec.y, vec.x)/M_PI + 1;
 	}
 	//if function is called for drawing color legend for glyphs
 	if(type == LEGEND_TYPE)
@@ -350,169 +350,162 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 //visualize: This is the main visualization function
 void visualize(void)
 {
-	//compute grid's cells' width and height
+	//compute grid's cells' width and height, counted as pixels
 	fftw_real wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);
 	fftw_real hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);
-
+	
+	//draw smoke/fluid/matter
 	if (draw_matter)
 	{	
-		//draw fluid/smoke
+		//draw the matter
 		draw_matter_fluid_smoke(wn, hn, rho, vx, vy, fx, fy);
 		
 		//draw color legend for matter
 		draw_matter_color_legend();
 	}
-
-	if (draw_vecs)		//draw vectors
+	
+	//draw vectors
+	if (draw_vecs)		
 	{
-		//variables used to iterate through grid cells and to create cells
-		fftw_real x, y;
+		//variables used to create grid cells and to iterate through them
 		grid_cell cell;
+		vector cell_iterator;
 		
-		//variables used to iterate through the data and to store the data for a give cell
+		//variables used to iterate through the data and to store the data for a given cell
 		int i, j, idx;
-		float dens, v_x, v_y, f_x, f_y;
 		
-		//compute the frequency of glyphs
-		fftw_real step_x = (fftw_real) DIM/no_glyphs_x;
-		fftw_real step_y = (fftw_real) DIM/no_glyphs_y;
+		//needed for storing the interpolation results for each cell
+		fftw_real density;
+		vector velocity, force;
 		
-		//compute the ratio with which the glyphs increase. It is in [0;1] because it represents the coordinates in the given cell.
-		// and shows how much the sampling point, a.k.a. lower left corner, has moved from the initial position
-		float x_offset = (step_x - 1);
-		float y_offset = (step_y - 1);
+		//needed to store the gradient computation result
+		vector gradient;
+		
+		//compute grid's' cells' width and height, with respect to the initial data samples grid. 
+		//It is a vector that shows how much the bottom left corner has moved from the original position on both axes.
+		vector step;
+		step.x = (fftw_real) DIM/no_glyphs_x;
+		step.y = (fftw_real) DIM/no_glyphs_y;
+		
+		//compute the ratio with which the glyphs increase. Shows how much the lower left corner has moved from the initial position.
+		point data_point;
+		data_point.r = (step.x - 1);
+		data_point.s = (step.y - 1);
 						
-		for (x = 0; x < DIM; x += step_x)
-			for (y = 2; y < DIM; y += step_y)									
+		for (cell_iterator.x = 0; cell_iterator.x < DIM; cell_iterator.x += step.x)
+			for (cell_iterator.y = 2; cell_iterator.y < DIM; cell_iterator.y += step.y)									
 			{
-				i = (int)x;
-				j = (int)y;
+				i = (int)cell_iterator.x;
+				j = (int)cell_iterator.y;
 				
-				//initialize cell grid. Used to position glyphs on the visualization window
-				initialize_cell(&cell, wn, hn, x, y, step_x, step_y);
+				/*
+				 * Step 1: initialize cell grid. It's used for positioning glyphs on the visualization window.
+				 */
+				initialize_cell(&cell, wn, hn, cell_iterator, step);
 				
-				//draw cell grid
+				//Eventually draw the cell grid
 				if(draw_glyph_grid)
 				{
 					draw_cell(&cell);
 				}
 				
-				//Compute the attributes values in the given cell grid
-				//if #glyphs does not change: each glyph corresponds to one grid cell => no interpolation
-				if( step_x == 1 && step_y == 1)
+				/*
+				 * Step 2: Compute the attributes values in the given cell grid. 
+				 * Each grid cell displays a glyph which shows the value for the bottom left corner point, where data is measured.
+				 * If #glyphs does not change => no interpolation. Otherwise the data point changes it's position and its value is computed using interpolation
+				 */
+				if( step.x == 1 && step.y == 1)
 				{
 					idx = (j * DIM) + i;
 					
-					dens = rho[idx];
-					v_x = vx[idx];
-					v_y = vy[idx];
-					f_x = fx[idx];
-					f_y = fy[idx];
+					density = rho[idx];
+					velocity.x = vx[idx];
+					velocity.y = vy[idx];
+					force.x = fx[idx];
+					force.y = fy[idx];
 				}
 				else
 				{
 					//It is assumed that when the glyph increase in size, they don't exceed more than 4 grid cells from the initial/original/default grid
 					
 					//interpolate for rho
-					dens = bilinear_interpolation(i, j, x_offset, y_offset, rho);
+					density = bilinear_interpolation(i, j, data_point, rho);
 					//interpolate for vx
-					v_x = bilinear_interpolation(i, j, x_offset, y_offset, vx);
+					velocity.x = bilinear_interpolation(i, j, data_point, vx);
 					//interpolate for vy
-					v_y = bilinear_interpolation(i, j, x_offset, y_offset, vy);
+					velocity.y = bilinear_interpolation(i, j, data_point, vy);
 					//interpolate for vx
-					f_x = bilinear_interpolation(i, j, x_offset, y_offset, fx);
+					force.x = bilinear_interpolation(i, j, data_point, fx);
 					//interpolate for vy
-					f_y = bilinear_interpolation(i, j, x_offset, y_offset, fy);	
+					force.y = bilinear_interpolation(i, j, data_point, fy);	
 				}
 
-				//choose vectorial attribute: velocity, force, gradients
+				/*
+				 * Step 3: choose vectorial attribute: velocity, force, gradients
+				 */
 				if(show_glyph_attribute == VELOCITY)
 				{	
-					//choose glyphs' color
-					//glyphs are colored based on velocity direction
+					//Part 1: choose glyphs' color
 					if(color_dir == TRUE)
 					{
-						direction_to_color(v_x, v_y, 0, GLYPH_TYPE);
+						//glyphs are colored based on velocity direction
+						direction_to_color(velocity, 0, GLYPH_TYPE);
 					}
 					else
 					{
 						//set the glyphs' color based on selected scalar field
-						glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
+						glyphs_scalar_color(density, velocity, force);
 					}
 				
-					//choose glyphs' type
-					draw_glyphs(cell, v_x, v_y, vec_scale);
+					//Part 2: choose glyps' type
+					draw_glyphs(cell, velocity, vec_scale);
 				}
-				
-				if(show_glyph_attribute == FORCE)
-				{					
-					//glyphs are colored based on velocity direction
+				else if(show_glyph_attribute == FORCE)
+				{	
+					//Part1: choose glyps'color				
 					if(color_dir == TRUE)
 					{
-						direction_to_color(f_x, f_y, 0, GLYPH_TYPE);
+						//glyphs are colored based on force direction
+						direction_to_color(force, 0, GLYPH_TYPE);
 					}
 					else
 					{
 						//set the glyphs' color based on selected scalar field
-						glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
+						glyphs_scalar_color(density, velocity, force);
 					}
 					
-					//choose glyphs' type
-					draw_glyphs(cell, f_x, f_y, vec_scale);
+					//Part2: choose glyps' type
+					draw_glyphs(cell, force, vec_scale);
 				}
-				
-				if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
+				else if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
 				{
-					//Part1: compute gradient
-					//compute cells' coordinates
-					int idx1 = (j*DIM) + i;
-					int idx2 = (j*DIM) + (i+1);
-					int idx3 = ((j + 1)*DIM) + i;
-					int idx4 = ((j + 1)*DIM) + (i+1);
+					//Part 1: compute gradient
+					compute_density_gradient(i, j, step, data_point, rho, &gradient);
+					gradient.x *= 5; gradient.y *= 5;
 					
-					//compute the values in the sample points
-					fftw_real f1 = rho[idx1], f2 = rho[idx2], f3 = rho[idx3], f4 = rho[idx4];
+					//Part 2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(density, velocity, force);
 					
-					//gradient definition from the book
-					//float glyph_x_dim = step_x*wn, glyph_y_dim = step_y*hn;
-					float dfx = (1-x_offset)*(f2-f1)/step_x + x_offset*(f4-f3)/step_x;
-					float dfy = (1-y_offset)*(f3-f1)/step_y + y_offset*(f4-f2)/step_y;
-					//float dfx = f2-f1, dfy = f3-f1;
-					
-					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
-					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
-					
-					//Part3: choose glyphs' type
-					draw_glyphs(cell, dfx*5, dfy*5, vec_scale);
+					//Part 3: choose glyphs' type
+					draw_glyphs(cell, gradient, vec_scale);
 				}
-				
-				if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
+				else if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
 				{
-					//Part1: compute gradient
-					//compute cells' coordinates
-					int idx1 = (j*DIM) + i;
-					int idx2 = (j*DIM) + (i+1);
-					int idx3 = ((j + 1)*DIM) + i;
-					int idx4 = ((j + 1)*DIM) + (i+1);
+					//Part 1: compute gradient
+					compute_velocity_magnitude_gradient(i, j, step, data_point, vx, vy, &gradient);
+					gradient.x *= 5; gradient.y *= 5;
 					
-					//compute the values in the sample points
-					fftw_real f1 = vector_magnitude(vx[idx1], vy[idx1]), f2 = vector_magnitude(vx[idx2], vy[idx2]);
-					fftw_real f3 = vector_magnitude(vx[idx3], vy[idx3]), f4 = vector_magnitude(vx[idx4], vy[idx4]);
+					//Part 2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(density, velocity, force);
 					
-					//gradient definition from the book
-					float dfx = (1-x_offset)*(f2-f1)/step_x + x_offset*(f4-f3)/step_x;
-					float dfy = (1-y_offset)*(f3-f1)/step_y + y_offset*(f4-f2)/step_y;
-					//float dfx = f2-f1, dfy = f3-f1;
-					
-					//Part2: choose glyphs color: set the glyphs' color based on selected scalar field
-					glyphs_scalar_color(dens, v_x, v_y, f_x, f_y);
-					
-					//Part3: choose glyphs' type
-					draw_glyphs(cell, dfx*5, dfy*5, vec_scale);
+					//Part 3: choose glyphs' type
+					draw_glyphs(cell, gradient, vec_scale);
 				}
 			}
 		
-		//draw color legend for glyphs
+		/*
+		 * Step 4: Draw color legend for glyphs
+		 */
 		if(color_dir == TRUE)
 		{
 			draw_glyph_color_legend(winWidth, winHeight);
