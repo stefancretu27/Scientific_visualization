@@ -1,11 +1,95 @@
 #include <rfftw.h>              //the numerical simulation FFTW 
 
+#ifndef VIS_H
+#define VIS_H
+/* 
+ * Defines
+ */
+#ifndef GLOBALS
+#define GLOBALS
+
+#define DIM 50
+#define MAX_COLOR_BANDS 256
+#define max(x, y) x > y ? x : y
+#define min(x, y) x < y ? x : y
+#define vec_magnitude(x, y) sqrt(x*x + y*y)
+#define V_SCALE_FACTOR 50
+#define F_SCALE_FACTOR 100
+//useful for drawing legend or colors, especially in the case of glyphs
+#define MATTER_TYPE 0												
+#define GLYPH_TYPE 1
+#define LEGEND_TYPE 2 
+//used for color bands 
+#define SCALAR 0
+#define VECTORIAL 1
+#define GRADIENT_SCALE_FACTOR 5
+
+#define MAX_SEEDS 10
+
+#endif
+
+/*
+ * Enums 
+ */
+typedef enum
+{
+	FALSE,
+	TRUE
+}bool; 
+
+//types of colormaps
+typedef enum 
+{
+	BLACKWHITE,
+	RAINBOW,
+	SATURATION
+}colormap;
+
+//matter attributes
+typedef enum
+{
+	DENSITY,													
+	VELOCITY_MAGNITUDE,
+	FORCE_MAGNITUDE
+}matter_attribute;
+
+//glyphs attributes
+typedef enum
+{
+	VELOCITY,
+	FORCE,
+	DENSITY_GRADIENT,
+	VEL_MAGN_GRADIENT
+}glyphs_attribute;
+
+//glyphs types
+typedef enum
+{
+	HEDGEHOGS,
+	CONES,
+	ELLIPSES
+}glyphs_type;
+
+//glyphs types
+typedef enum
+{
+	MATTER,
+	GLYPHS,
+	STREAMLINES
+}visualization_technique;
+
 /*
  * Structs
  */
+typedef struct int_coord int_coord;
 typedef struct point point;  
 typedef struct vector vector; 
 typedef struct grid_cell grid_cell;
+
+struct int_coord
+{
+	int a, b;
+};
 
 struct point
 {
@@ -81,10 +165,17 @@ void draw_glyphs(grid_cell cell, vector data, float vec_scale);
 void glyphs_scalar_color(float density, vector velocity, vector force);
 
 //interpolation
-fftw_real bilinear_interpolation(int i, int j, point data_point, fftw_real *attribute);
+void cell_corners_indexing(int i, int j, int *idx1, int *idx2, int *idx3, int *idx4);
+fftw_real bilinear_interpolation(int idx1, int idx2, int idx3, int idx4, point data_point, fftw_real *attribute);
 
 /* 
- * Function implemented for step 4 
+ * Functions implemented for step 4 
  */
 void compute_density_gradient(int i, int j, vector step, point data_point, fftw_real *density, vector *gradient);
 void compute_velocity_magnitude_gradient(int i, int j, vector step, point data_point, fftw_real *vx, fftw_real *vy, vector *gradient);
+
+/* 
+ * Functions implemented for step 5 
+ */
+void draw_seed_points(grid_cell cell);
+#endif 

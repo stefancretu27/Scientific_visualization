@@ -2,13 +2,12 @@
 //        the velocity field at the mouse location. Press the indicated keys to change options
 //--------------------------------------------------------------------------------------------------
 
-#include <rfftw.h>              //the numerical simulation FFTW 
+//#include <rfftw.h>              //the numerical simulation FFTW 
 #include <stdio.h>              //for printing the help text
 
 #include <math.h>               //for various math functions #include
 #include <GL/glut.h>            //the GLUT graphics library
 
-#include <fluids.h>
 #include <visualization.h>
 
 //--- SIMULATION PARAMETERS ------------------------------------------------------------------------
@@ -29,6 +28,7 @@ unsigned int winWidth, winHeight;      									//size of the graphics window, i
 float vec_scale = 1000;													//scaling of hedgehogs
 bool frozen = FALSE;   													//toggles on/off the animation
 bool draw_glyph_grid = FALSE;
+visualization_technique vis_tech = MATTER;
 
 //scalar-related global data: matter
 bool draw_matter = FALSE;           									//draw the matter (1) or not (0)
@@ -56,6 +56,9 @@ float glyph_scale_lmin = 0, glyph_scale_lmax = 0;						//the limits of the inter
 bool glyph_clamp = FALSE;												//default colormap clamping
 float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;						//the limits to which a value is clamped
 
+//store the coordinates where mouse was left clicked
+int_coord *seed, test;
+int seeds_count = -1;
 
 //------ SIMULATION CODE STARTS HERE -----------------------------------------------------------------
 
@@ -81,6 +84,8 @@ void init_simulation(int n)
 
 	for (i = 0; i < n * n; i++)                      //Initialize data structures to 0
 	{ vx[i] = vy[i] = vx0[i] = vy0[i] = fx[i] = fy[i] = rho[i] = rho0[i] = 0.0f; }
+	
+	seed = (int_coord*)calloc(MAX_SEEDS, sizeof(int_coord));
 }
 
 
@@ -249,17 +254,17 @@ void set_colormap(float scalar_value)
 	//apply color mapping
 	if (matter_color_type == BLACKWHITE)
 	{
-		glClearColor(0.6, 0.4, 0.2, 0);							//set background color
+		//glClearColor(0.6, 0.4, 0.2, 0);							//set background color
 		grayscale(scalar_value, &r, &g, &b);
 	}
 	else if (matter_color_type == RAINBOW)
 	{
-		glClearColor(0.0, 0.0, 0.0, 0);							//set background color
+		//glClearColor(0.0, 0.0, 0.0, 0);							//set background color
 		rainbow(scalar_value, &r, &g, &b);
 	}
 	else if (matter_color_type == SATURATION)
 	{
-		glClearColor(0.2, 0.0, 0.2, 0);							//set background color
+		//glClearColor(0.2, 0.0, 0.2, 0);							//set background color
 		green_saturation(scalar_value, &r, &g, &b);
 	}
 
@@ -322,12 +327,12 @@ void direction_to_color(vector vec, float value, unsigned short int type)
 	}
 	else if (glyph_color_type == RAINBOW)
 	{
-		glClearColor(0.0, 0.0, 0.0, 0);
+		//glClearColor(0.0, 0.0, 0.0, 0);
 		rainbow(color_value, &r, &g, &b);
 	}
 	else if (glyph_color_type == SATURATION)
 	{
-		glClearColor(0.0, 0.2, 0.2, 0);
+		//lClearColor(0.0, 0.2, 0.2, 0);
 		red_saturation(color_value, &r, &g, &b);
 	}
 	
@@ -355,7 +360,7 @@ void visualize(void)
 	fftw_real hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);
 	
 	//draw smoke/fluid/matter
-	if (draw_matter)
+	if (vis_tech == MATTER)
 	{	
 		//draw the matter
 		draw_matter_fluid_smoke(wn, hn, rho, vx, vy, fx, fy);
@@ -365,14 +370,14 @@ void visualize(void)
 	}
 	
 	//draw vectors
-	if (draw_vecs)		
+	if (vis_tech == GLYPHS)		
 	{
 		//variables used to create grid cells and to iterate through them
 		grid_cell cell;
 		vector cell_iterator;
 		
 		//variables used to iterate through the data and to store the data for a given cell
-		int i, j, idx;
+		int i, j, idx, idx1, idx2, idx3, idx4;
 		
 		//needed for storing the interpolation results for each cell
 		fftw_real density;
@@ -392,8 +397,8 @@ void visualize(void)
 		data_point.r = (step.x - 1);
 		data_point.s = (step.y - 1);
 						
-		for (cell_iterator.x = 0; cell_iterator.x < DIM; cell_iterator.x += step.x)
-			for (cell_iterator.y = 2; cell_iterator.y < DIM; cell_iterator.y += step.y)									
+		for (cell_iterator.x = 0; cell_iterator.x < DIM - 0.1; cell_iterator.x += step.x)
+			for (cell_iterator.y = 0; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)									
 			{
 				i = (int)cell_iterator.x;
 				j = (int)cell_iterator.y;
@@ -427,17 +432,18 @@ void visualize(void)
 				else
 				{
 					//It is assumed that when the glyph increase in size, they don't exceed more than 4 grid cells from the initial/original/default grid
+					cell_corners_indexing(i, j, &idx1, &idx2, &idx3, &idx4);
 					
 					//interpolate for rho
-					density = bilinear_interpolation(i, j, data_point, rho);
+					density = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, rho);
 					//interpolate for vx
-					velocity.x = bilinear_interpolation(i, j, data_point, vx);
+					velocity.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vx);
 					//interpolate for vy
-					velocity.y = bilinear_interpolation(i, j, data_point, vy);
+					velocity.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vy);
 					//interpolate for vx
-					force.x = bilinear_interpolation(i, j, data_point, fx);
+					force.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, fx);
 					//interpolate for vy
-					force.y = bilinear_interpolation(i, j, data_point, fy);	
+					force.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, fy);	
 				}
 
 				/*
@@ -457,8 +463,11 @@ void visualize(void)
 						glyphs_scalar_color(density, velocity, force);
 					}
 				
-					//Part 2: choose glyps' type
-					draw_glyphs(cell, velocity, vec_scale);
+					//Part 2: choose glyps' type. Don't overlap with the color legend
+					if(cell_iterator.y >= 2)
+					{ 
+						draw_glyphs(cell, velocity, vec_scale);
+					}
 				}
 				else if(show_glyph_attribute == FORCE)
 				{	
@@ -475,7 +484,10 @@ void visualize(void)
 					}
 					
 					//Part2: choose glyps' type
-					draw_glyphs(cell, force, vec_scale);
+					if(cell_iterator.y >= 2)
+					{
+						draw_glyphs(cell, force, vec_scale);
+					}
 				}
 				else if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
 				{
@@ -487,7 +499,10 @@ void visualize(void)
 					glyphs_scalar_color(density, velocity, force);
 					
 					//Part 3: choose glyphs' type
-					draw_glyphs(cell, gradient, vec_scale);
+					if(cell_iterator.y >= 2)
+					{
+						draw_glyphs(cell, gradient, vec_scale);
+					}
 				}
 				else if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
 				{
@@ -499,7 +514,10 @@ void visualize(void)
 					glyphs_scalar_color(density, velocity, force);
 					
 					//Part 3: choose glyphs' type
-					draw_glyphs(cell, gradient, vec_scale);
+					if(cell_iterator.y >= 2)
+					{
+						draw_glyphs(cell, gradient, vec_scale);
+					}
 				}
 			}
 		
@@ -514,6 +532,93 @@ void visualize(void)
 		{
 			draw_matter_color_legend();
 		}
+	}
+	
+	//draw streamlines
+	if(vis_tech == STREAMLINES)
+	{
+		//variables used to create grid cells and to iterate through them
+		grid_cell cell;
+		//the next 2 are used to fit into cell creating fucntions pattern
+		vector cell_iterator;
+		vector step;
+		step.x = 1;
+		step.y = 1;
+		//vector coordinates and magnitude in the given cell
+		vector velocity;
+		fftw_real vel_magnitude;
+		//clicked point's coordinates within a cell in [0;1]
+		point data_point;
+
+		int i, j, k, idx1, idx2, idx3, idx4;
+
+		for (cell_iterator.x = 0; cell_iterator.x < DIM - 0.1; cell_iterator.x += step.x)
+			for (cell_iterator.y = 2; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)
+			{
+				/*
+				 * Step 1: initialize cell grid. It's used for positioning glyphs on the visualization window.
+				 */
+				initialize_cell(&cell, wn, hn, cell_iterator, step);
+				
+				//Eventually draw the cell grid
+				if(draw_glyph_grid)
+				{
+					draw_cell(&cell);
+				}
+				
+				//printf("%f %f %f %f\n", cell_iterator.x, cell_iterator.y, cell.x, cell.y);
+				//draw_cones(cell, velocity, vec_scale);
+
+				for(k = 1; k <= seeds_count; k++)
+				{
+					//check if the seed is in the current cell
+					if(cell.x <= seed[k].a && seed[k].a < cell.x + cell.width)
+						if(cell.y - cell.height <= seed[k].b && seed[k].b < cell.y)			//as cell indexing starts from top left corner
+						{
+							//grid_cell_y = winHeight - ((int) hn + 1) - seed.s;
+						
+							//compute the coordinates of the clicked point in the given cell
+							//obtain the offset of the point related to the bottom left corner of the cell
+							data_point.r = seed[k].a/cell.width;
+							data_point.s = seed[k].b/cell.height;
+						
+							//get fractional part
+							data_point.r -= cell_iterator.x;
+							data_point.s = 1 - (cell_iterator.y - data_point.s);
+						
+							//printf("%f %f %f %f %f\n", seed.r, seed.s, cell.y, data_point.r, data_point.s);
+						
+							//get the indeces for the cell's corners. Screen's origin is in the top left corner, whereas the cell grid starts from bottom left corner
+							//Thus, the coordinates of the selected point should be translated into coordinates in the cell grid's system (only on Y axis)
+							i = (int) cell_iterator.x;
+							j = (int) DIM - cell_iterator.y + 1;
+							cell_corners_indexing(i, j, &idx1, &idx2, &idx3, &idx4);
+						
+							//printf("%f %f| %d %d |%d %d %d %d\n", cell_iterator.x, cell_iterator.y, i, j, idx1, idx2, idx3, idx4);
+						
+							//get the velocity value by doing piecewise linear interpolation for the given cell
+							//interpolate for vx
+							velocity.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vx);
+							//interpolate for vy
+							velocity.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vy);
+						
+							//get the vector magnitude
+							vel_magnitude = vector_magnitude(velocity.x, velocity.y);
+							vel_magnitude *= V_SCALE_FACTOR;
+							//set color based on velocity magnitude
+							set_colormap(vel_magnitude);
+						
+							//cel indexing starts from bottom-left corner
+							cell.y = winHeight - cell.y;
+							if(cell_iterator.y >= 2)
+							{
+								draw_seed_points(cell);
+								//draw_cones(cell, velocity, vec_scale);
+							}
+						}
+				}
+			}
+		draw_matter_color_legend();
 	}
 }
 
@@ -555,13 +660,11 @@ void keyboard(unsigned char key, int x, int y)
 		case 's': vec_scale *= 0.8; break;
 		case 'V': visc *= 5; break;
 		case 'v': visc *= 0.2; break;
-		case 'x':
-			draw_matter = 1 - draw_matter;
-			if (draw_matter == 0) draw_vecs = 1;
-			break;
-		case 'y':
-			draw_vecs = 1 - draw_vecs;
-			if (draw_vecs==0) draw_matter = 1;
+		case 'x': vis_tech++;
+			if (vis_tech > STREAMLINES) 
+			{
+				vis_tech = MATTER;
+			}
 			break;
 		case 'm': matter_color_type++;
 			if (matter_color_type > SATURATION)
@@ -680,43 +783,65 @@ void keyboard(unsigned char key, int x, int y)
 //       cursor movement. Also inject some new matter into the field at the mouse location.
 void drag(int mx, int my)
 {
-	int xi,yi,X,Y;
-	double  dx, dy, len;
-	static int lmx=0,lmy=0;				//remembers last mouse location
-
-	// Compute the array index that corresponds to the cursor location
-	xi = (int)clamp((double)(DIM + 1) * ((double)mx / (double)winWidth));
-	yi = (int)clamp((double)(DIM + 1) * ((double)(winHeight - my) / (double)winHeight));
-
-	X = xi;
-	Y = yi;
-
-	if (X > (DIM - 1))
-		X = DIM - 1;
-	if (Y > (DIM - 1))
-		Y = DIM - 1;
-	if (X < 0)
-		X = 0;
-	if (Y < 0)
-		Y = 0;
-
-	// Add force at the cursor location
-	my = winHeight - my;
-	dx = mx - lmx;
-	dy = my - lmy;
-	len = sqrt(dx * dx + dy * dy);
-	if (len != 0.0)
+	//if(vis_tech != STREAMLINES)
 	{
-		dx *= 0.1 / len;
-		dy *= 0.1 / len;
+		int xi,yi,X,Y;
+		double  dx, dy, len;
+		static int lmx=0,lmy=0;				//remembers last mouse location
+
+		// Compute the array index that corresponds to the cursor location
+		xi = (int)clamp((double)(DIM + 1) * ((double)mx / (double)winWidth));
+		yi = (int)clamp((double)(DIM + 1) * ((double)(winHeight - my) / (double)winHeight));
+
+		X = xi;
+		Y = yi;
+
+		if (X > (DIM - 1))
+			X = DIM - 1;
+		if (Y > (DIM - 1))
+			Y = DIM - 1;
+		if (X < 0)
+			X = 0;
+		if (Y < 0)
+			Y = 0;
+
+		// Add force at the cursor location
+		my = winHeight - my;
+		dx = mx - lmx;
+		dy = my - lmy;
+		len = sqrt(dx * dx + dy * dy);
+		if (len != 0.0)
+		{
+			dx *= 0.1 / len;
+			dy *= 0.1 / len;
+		}
+		fx[Y * DIM + X] += dx;
+		fy[Y * DIM + X] += dy;
+		rho[Y * DIM + X] = 10.0f;
+		lmx = mx;
+		lmy = my;
 	}
-	fx[Y * DIM + X] += dx;
-	fy[Y * DIM + X] += dy;
-	rho[Y * DIM + X] = 10.0f;
-	lmx = mx;
-	lmy = my;
 }
 
+void on_mouse_click(int button, int state, int x, int y)
+{
+	if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN && vis_tech == STREAMLINES) 
+	{ 
+		if(seeds_count < MAX_SEEDS)
+		{
+			//store the x,y value where the click happened
+			seeds_count++;
+			seed[seeds_count].a = x;
+			seed[seeds_count].b = y;
+		
+			//printf("on_mouse_click: %d %d %d %d %d \n", seeds_count, seed[seeds_count].a, seed[seeds_count].b, x, y);
+		}
+		else
+		{
+			seeds_count = 0;
+		}
+	}
+}
 
 //main: The main program
 int main(int argc, char **argv)
@@ -728,8 +853,7 @@ int main(int argc, char **argv)
 	printf("c:     toggle direction coloring on/off\n");
 	printf("S/s:   increase/decrease glyph scaling\n");
 	printf("V/v:   increase decrease fluid viscosity\n");
-	printf("x:     toggle drawing smoke on/off\n");
-	printf("y:     toggle drawing glyphs on/off\n");
+	printf("x:     toggle thru visualization techniques: matter/glyphs/streamlines\n");
 	printf("a:     toggle the animation on/off\n");
 	printf("m:     toggle thru scalar coloring\n");
 	printf("M:     toggle thru glyphs coloring (only when direction coloring is on)\n");
@@ -755,8 +879,9 @@ int main(int argc, char **argv)
 	glutReshapeFunc(reshape);
 	glutIdleFunc(do_one_simulation_step);
 	glutKeyboardFunc(keyboard);
+	glutMouseFunc(on_mouse_click);
 	glutMotionFunc(drag);
-
+	
 	init_simulation(DIM);	//initialize the simulation data structures
 	glutMainLoop();			//calls do_one_simulation_step, keyboard, display, drag, reshape
 	return 0;

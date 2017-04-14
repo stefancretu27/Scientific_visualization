@@ -8,13 +8,13 @@
 #include <GL/glut.h>            //the GLUT graphics library
 #include </usr/include/GL/freeglut.h>
 
-#include <fluids.h>
 #include <visualization.h>
 
 /*
  * External data: They are declared here but not instantiated. The memory allocation and initialization happens in fluids.c
  */
-extern unsigned int winWidth, winHeight; 
+extern unsigned int winWidth, winHeight;
+extern unsigned short int no_glyphs_x, no_glyphs_y; 
  
 //MATTER_GLOBALS          												//draw the matter (1) or not (0)
 extern matter_attribute show_matter_attribute;							//default shown attribute
@@ -461,7 +461,7 @@ void draw_matter_color_legend()
 		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
 		if(matter_color_bands <= max_displayable_values)
 		{
-			glRasterPos2f(i*x_size, 30);
+			glRasterPos2f((i+0.5)*x_size, 30);
 			glColor3f(1.0f, 1.0f, 1.0f);
 			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 		}
@@ -472,7 +472,7 @@ void draw_matter_color_legend()
 			
 			if(val == 0)
 			{
-				glRasterPos2f(i*x_size, 30);
+				glRasterPos2f((i+0.5)*x_size, 30);
 				glColor3f(1.0f, 1.0f, 1.0f);
 				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 			}
@@ -551,7 +551,7 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 } 
 
 /*
- * Functions used for draeing glyphs
+ * Functions used at step 3 for drawing glyphs
  * attribute can be either velocity or force; 
  * Inputs: x, y: hedgehogs indeces on the grid
  * 		   attribute_x, attribute_y: attribute's values on x and y axes
@@ -573,7 +573,7 @@ void draw_hedgehog(grid_cell cell, vector data, float vec_scale)
 	
 	//compute vector magnitude and scale it
 	float magnitude = vector_magnitude(data.x, data.y);
-	magnitude *= vec_scale/50;
+	magnitude *= vec_scale/20;
 	
 	//scale factors for the top point
 	float scale_x;
@@ -610,7 +610,103 @@ void draw_hedgehog(grid_cell cell, vector data, float vec_scale)
 	
 	glPopMatrix();
 }
- 
+
+//Draw 3D glyphs
+void draw_cones(grid_cell cell, vector data, float vec_scale)					
+{
+	//cone's height and base's radius
+	float base_radius = cell.width*1/3;
+	float cone_height = cell.height;
+	
+	//compute the base's center
+	float cx = cell.x+ cell.width*1/2;
+	float cy =  cell.y;
+	
+	//rotation angle
+	float angle = direction2angle(data.x, data.y);
+	
+	//compute vector magnitude and scale it
+	float magnitude = vector_magnitude(data.x, data.y);
+	magnitude *= vec_scale/100;
+	
+	//scaling factors
+	float base_scaling_factor;
+	float height_scaling_factor;
+	
+	//clamp values so the cones won't overlap (too much). They do not exceed the maximum size = cell_height
+	if(cell.width >= cell.height)
+	{
+		base_scaling_factor = clamp_value(magnitude, cell.width/(8*base_radius), cell.height/(2*base_radius));
+		height_scaling_factor = clamp_value(magnitude, cell.height/(10*cone_height), cell.height/(2*cone_height));
+	}
+	//cones do not exceed the maximum size = cell_width
+	else
+	{
+		base_scaling_factor = clamp_value(magnitude, cell.width/(8*base_radius), cell.width/(2*base_radius) );
+		height_scaling_factor = clamp_value(magnitude, cell.height/(10*cone_height), cell.width/(2*cone_height) );
+	} 				
+	
+    //push the current matrix on stack and perform transformations
+    glPushMatrix();
+    
+    glTranslatef(cx, cy, 0.0);
+    glRotatef(angle, 0, 0, 1);
+    glRotatef(180, 0, 1, 0);
+    glRotatef(90, 1, 0, 0);										
+    glScalef(base_scaling_factor, height_scaling_factor, 1.0);					
+	glutSolidCone(base_radius, cone_height, 30, 30);
+	
+	//delete matrix from stack			
+	glPopMatrix();
+}
+
+void draw_ellipsoids(grid_cell cell, vector data, float vec_scale)
+{
+	//compute the ellipsoid's center
+	float cx = cell.x + cell.width*1/2;
+	float cy = cell.y + cell.height*1/2;
+	
+	//compute vector magnitude and scale it
+	float magnitude = vector_magnitude(data.x, data.y);
+	magnitude *= vec_scale/100;
+	
+	//rotation angle
+	float angle = direction2angle(data.x, data.y);
+	
+	//compute scaling factors
+	float scale_x;
+	float scale_y;
+	
+	//radius of the globe
+	float radius;
+	
+	if(cell.width >= cell.height)
+	{
+		radius = cell.height*1/4;
+		
+		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.height/(2*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.height/(1.75*radius) );
+	}
+	else
+	{
+		radius = cell.width*1/4;
+		
+		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.width/(1.75*radius) );
+		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.width/(2*radius) );
+	}
+
+	//push the current matrix on stack and perform transformations
+	glPushMatrix();
+	
+	glTranslatef(cx, cy, 0);
+	glRotatef(angle, 0, 0, 1.0);
+	glScalef(scale_x, scale_y, 1.0);
+	glutSolidSphere(radius, 30, 30);
+	
+	//delete matrix from stack
+	glPopMatrix();
+}
+
 //Draw 2D glyphs: Not updated, used initially for testing purpose
 void draw_triangle(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height, float vec_scale)
 {
@@ -671,7 +767,7 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
 	//compute the ellipse's center
 	float cx = (fftw_real)x * cell_width;
 	float cy =  (fftw_real)y * cell_height;
-	//compute ellipse's radius, including scaling
+	//compute ellipse's radius
 	float rx = cell_width*1/4;
 	float ry = cell_height*1/4;
 	//compute scaling factors
@@ -704,102 +800,6 @@ void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y,
     glEnd();
     
     glPopMatrix();																				//deletes matrix from stack, after drawing is done
-}
-
-//Draw 3D glyphs
-void draw_cones(grid_cell cell, vector data, float vec_scale)					
-{
-	//cone's height and base's radius
-	float base_radius = cell.width*1/3;
-	float cone_height = cell.height;
-	
-	//compute the base's center
-	float cx = cell.x+ cell.width*1/2;
-	float cy =  cell.y;
-	
-	//rotation angle
-	float angle = direction2angle(data.x, data.y);
-	
-	//compute vector magnitude and scale it
-	float magnitude = vector_magnitude(data.x, data.y);
-	magnitude *= vec_scale/100;
-	
-	//scaling factors
-	float base_scaling_factor;
-	float height_scaling_factor;
-	
-	//clamp values so the cones won't overlap (too much). They do not exceed the maximum size = cell_height
-	if(cell.width >= cell.height)
-	{
-		base_scaling_factor = clamp_value(magnitude, cell.width/(6*base_radius), cell.height/(2*base_radius));
-		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.height/(2*cone_height));
-	}
-	//cones do not exceed the maximum size = cell_width
-	else
-	{
-		base_scaling_factor = clamp_value(magnitude, cell.width/(6*base_radius), cell.width/(2*base_radius) );
-		height_scaling_factor = clamp_value(magnitude, cell.height/(4*cone_height), cell.width/(2*cone_height) );
-	} 				
-	
-	//glMatrixMode(GL_MODELVIEW);
-    //push the current matrix on stack and perform transformations
-    glPushMatrix();
-    glTranslatef(cx, cy, 0.0);
-    glRotatef(angle, 0, 0, 1);
-    glRotatef(180, 0, 1, 0);
-    glRotatef(90, 1, 0, 0);										
-    glScalef(base_scaling_factor, height_scaling_factor, 1.0);					
-	glutSolidCone(base_radius, cone_height, 30, 30);
-	//delete matrix from stack			
-	glPopMatrix();
-}
-
-void draw_ellipsoids(grid_cell cell, vector data, float vec_scale)
-{
-	//compute the ellipsoid's center
-	float cx = cell.x + cell.width*1/2;
-	float cy = cell.y + cell.height*1/2;
-	
-	//compute vector magnitude and scale it
-	float magnitude = vector_magnitude(data.x, data.y);
-	magnitude *= vec_scale/100;
-	
-	//rotation angle
-	float angle = direction2angle(data.x, data.y);
-	
-	//compute scaling factors
-	float scale_x;
-	float scale_y;
-	
-	//radius of the globe
-	float radius;
-	
-	if(cell.width >= cell.height)
-	{
-		radius = cell.height*1/4;
-		
-		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.height/(2*radius) );
-		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.height/(2*radius) );
-	}
-	//only when %glyphs_y = 30 & #glyphs_x = 50 or when winWidth < winHeight
-	else
-	{
-		radius = cell.width*1/4;
-		
-		scale_x = clamp_value(magnitude, cell.width/(4*radius), cell.width/(2*radius) );
-		scale_y = clamp_value(magnitude, cell.height/(6*radius), cell.width/(2*radius) );
-	}
-
-	//glMatrixMode(GL_MODELVIEW);
-
-	//push the current matrix on stack and perform transformations
-	glPushMatrix();
-	glTranslatef(cx, cy, 0);
-	glRotatef(angle, 0, 0, 1.0);
-	glScalef(scale_x, scale_y, 1.0);
-	glutSolidSphere(radius, 30, 30);
-	//delete matrix from stack
-	glPopMatrix();
 }
 
 void draw_glyphs(grid_cell cell, vector data, float vec_scale)
@@ -912,25 +912,36 @@ fftw_real bilinear_interpolation_initial(int i, int j, float x_offset, float y_o
 	return linear_interpolation(j, r1, j+1, r2, t);
 }
 
-//currently used version based on the model provided in book, chapter 3.2
-fftw_real bilinear_interpolation(int i, int j, point data_point, fftw_real *attribute)
+//functions used for indexing the attributes at the four corners of a cell
+void cell_corners_indexing(int i, int j, int *idx1, int *idx2, int *idx3, int *idx4)
 {
-	//compute cells' coordinates
-	int idx1 = (j*DIM) + i;
-	int idx2 = (j*DIM) + (i+1);
-	int idx3 = ((j + 1)*DIM) + i;
-	int idx4 = ((j + 1)*DIM) + (i+1);
-	
+	*idx1 = (j*DIM) + i;
+	*idx2 = (j*DIM) + (i+1);
+	*idx3 = ((j + 1)*DIM) + i;
+	*idx4 = ((j + 1)*DIM) + (i+1);
+}
+
+//currently used version based on the model provided in book, chapter 3.2
+fftw_real bilinear_interpolation(int idx1, int idx2, int idx3, int idx4, point data_point, fftw_real *attribute)
+{
 	//compute the values of the attribute in the selected 4 points
 	fftw_real f11 = attribute[idx1], f12 = attribute[idx2], f21 = attribute[idx3], f22 = attribute[idx4];
 	
+	//printf("%f %f %f %f\n", f11, f12, f21, f22);
+	
 	//compute the basis function values (linear basis functions)
-	fftw_real q11 = (1 - data_point.r) * (1 - data_point.s), q12 = data_point.r * (1 - data_point.s); 
-	fftw_real q21 = data_point.r * data_point.s, q22 = (1 - data_point.r) * data_point.s; 
+	fftw_real q11 = (1 - data_point.r) * (1 - data_point.s); 
+	fftw_real q12 = data_point.r * (1 - data_point.s); 
+	fftw_real q21 = data_point.r * data_point.s;
+	fftw_real q22 = (1 - data_point.r) * data_point.s; 
 	
 	//return the interpolation result: "weighted sum of the basis functions, where the weights are the sample values"
 	return f11*q11 + f12*q12 + f21*q21 + f22*q22;
 }								
+
+/*
+ * Functions used at step 4 for computing gradients 
+ */
 
 void compute_density_gradient(int i, int j, vector step, point data_point, fftw_real *density, vector *gradient)
 {
@@ -963,4 +974,45 @@ void compute_velocity_magnitude_gradient(int i, int j, vector step, point data_p
 	//gradient definition from the book
 	(*gradient).x = (1 - data_point.r)*(f2 - f1)/step.x + data_point.r*(f4 - f3)/step.x;
 	(*gradient).y = (1 - data_point.s)*(f3 - f1)/step.y + data_point.s*(f4 - f2)/step.y;
+}
+
+/*
+ * Functions used at step 5
+ */
+void draw_seed_points(grid_cell cell)
+{
+	unsigned short int i;
+	int num_segments = 20;
+	float angle, xx, yy, radius;
+	
+	//compute the point's center
+	float cx = cell.x + cell.width*1/2;
+	float cy = cell.y + cell.height*1/2;
+	
+	//compute points's radius
+	//float rx = cell.width*1/8;
+	//float ry = cell.height*1/8;
+	if(cell.width <= cell.height)
+	{
+		radius = cell.width*1/6;
+	}
+	else
+	{
+		radius = cell.height*1/6;
+	}
+	
+	glClear(GL_DEPTH_BUFFER_BIT); 
+    glMatrixMode(GL_MODELVIEW);																	//it is applied to object coordinates
+    glPushMatrix();       																		//clones the previous matrix and puts it on the stack for applying transformations
+    glBegin(GL_TRIANGLE_FAN);
+    //set the center of circle 
+    glVertex2f(cx, cy); 														
+    for (i = 0; i <= num_segments; i++)   
+    {
+		angle = 2.0f * M_PI * (float)i/(float)num_segments;
+		xx = radius * cosf(angle);																	//calculate the x component 
+        yy = radius * sinf(angle);																	//calculate the y component  
+        glVertex2f(cx + xx, cy + yy);
+    }
+    glEnd();
 }
