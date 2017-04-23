@@ -13,8 +13,8 @@
 #define max(x, y) x > y ? x : y
 #define min(x, y) x < y ? x : y
 #define vec_magnitude(x, y) sqrt(x*x + y*y)
-#define V_SCALE_FACTOR 50
-#define F_SCALE_FACTOR 100
+#define V_SCALE_FACTOR 15
+#define F_SCALE_FACTOR 50
 //useful for drawing legend or colors, especially in the case of glyphs
 #define MATTER_TYPE 0												
 #define GLYPH_TYPE 1
@@ -24,7 +24,7 @@
 #define VECTORIAL 1
 #define GRADIENT_SCALE_FACTOR 5
 
-#define MAX_SEEDS 10
+#define MAX_SEEDS 20
 
 #endif
 
@@ -78,6 +78,12 @@ typedef enum
 	STREAMLINES
 }visualization_technique;
 
+typedef enum
+{
+	POINTS,
+	LINES
+}streamlines_type;
+
 /*
  * Structs
  */
@@ -85,6 +91,7 @@ typedef struct int_coord int_coord;
 typedef struct point point;  
 typedef struct vector vector; 
 typedef struct grid_cell grid_cell;
+typedef struct cell_sample_points cell_sample_points;
 
 struct int_coord
 {
@@ -110,6 +117,11 @@ struct grid_cell
 	fftw_real x, y;
 };
 
+struct cell_sample_points
+{
+	int idx1, idx2, idx3, idx4;
+};
+
 /*
  * Structs related functions
  */ 
@@ -123,6 +135,7 @@ void clamp_value_to_01(float *value);
 void draw_triangle_vertex( double x, double y, float color_value);
 float direction2angle(float x, float y);
 fftw_real vector_magnitude(fftw_real vx, fftw_real vy);
+fftw_real vector_normalize(vector v);
 
 /* 
  * Functions implemented for step 2. 
@@ -139,6 +152,7 @@ void rgb2hsv(float r, float g , float b, float *h, float *s, float *v);
 void hsv2rgb(float h, float s, float v, float *r, float *g, float *b);
 
 //scale the color map
+void compute_attributes_min_max(fftw_real *rho, fftw_real *vx, fftw_real *vy, fftw_real *fx, fftw_real *fy, float *min, float *max);
 float set_scale(float value, float x0, float x1,  float y0, float y1);
 float clamp_value( float value, float min, float max);
 
@@ -165,8 +179,8 @@ void draw_glyphs(grid_cell cell, vector data, float vec_scale);
 void glyphs_scalar_color(float density, vector velocity, vector force);
 
 //interpolation
-void cell_corners_indexing(int i, int j, int *idx1, int *idx2, int *idx3, int *idx4);
-fftw_real bilinear_interpolation(int idx1, int idx2, int idx3, int idx4, point data_point, fftw_real *attribute);
+void cell_corners_indexing(int i, int j, cell_sample_points *cell_corners_indeces);
+fftw_real bilinear_interpolation(cell_sample_points cell_corners_indeces, point data_point, fftw_real *attribute);
 
 /* 
  * Functions implemented for step 4 
@@ -177,5 +191,6 @@ void compute_velocity_magnitude_gradient(int i, int j, vector step, point data_p
 /* 
  * Functions implemented for step 5 
  */
-void draw_seed_points(grid_cell cell);
+void draw_points(point current_point, vector velocity, float step_size);
+void draw_lines(point prev_point, point current_point, vector velocity);
 #endif 

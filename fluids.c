@@ -56,9 +56,12 @@ float glyph_scale_lmin = 0, glyph_scale_lmax = 0;						//the limits of the inter
 bool glyph_clamp = FALSE;												//default colormap clamping
 float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;						//the limits to which a value is clamped
 
-//store the coordinates where mouse was left clicked
-int_coord *seed, test;
+//streamlines-related data
+int_coord *seed;
 int seeds_count = -1;
+unsigned short int streamline_length_scaling_factor = 5;
+streamlines_type streamline_type = POINTS;
+
 
 //------ SIMULATION CODE STARTS HERE -----------------------------------------------------------------
 
@@ -239,6 +242,8 @@ void set_colormap(float scalar_value)
 	//apply color scalling. scale_lmin and scale_lmax are set by the user. The interval [0;1] is scaled to the user-inserted interval
 	if(matter_scale)
 	{
+		compute_attributes_min_max(rho, vx, vy, fx, fy, &matter_scale_lmin, &matter_scale_lmax);
+
 		scalar_value = set_scale(scalar_value, matter_scale_lmin, matter_scale_lmax, 0, 1);
 	}
 	
@@ -375,9 +380,10 @@ void visualize(void)
 		//variables used to create grid cells and to iterate through them
 		grid_cell cell;
 		vector cell_iterator;
+		cell_sample_points cell_corners_indeces;
 		
 		//variables used to iterate through the data and to store the data for a given cell
-		int i, j, idx, idx1, idx2, idx3, idx4;
+		int i, j, idx;
 		
 		//needed for storing the interpolation results for each cell
 		fftw_real density;
@@ -432,18 +438,18 @@ void visualize(void)
 				else
 				{
 					//It is assumed that when the glyph increase in size, they don't exceed more than 4 grid cells from the initial/original/default grid
-					cell_corners_indexing(i, j, &idx1, &idx2, &idx3, &idx4);
+					cell_corners_indexing(i, j, &cell_corners_indeces);
 					
 					//interpolate for rho
-					density = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, rho);
+					density = bilinear_interpolation(cell_corners_indeces, data_point, rho);
 					//interpolate for vx
-					velocity.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vx);
+					velocity.x = bilinear_interpolation(cell_corners_indeces, data_point, vx);
 					//interpolate for vy
-					velocity.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vy);
+					velocity.y = bilinear_interpolation(cell_corners_indeces, data_point, vy);
 					//interpolate for vx
-					force.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, fx);
+					force.x = bilinear_interpolation(cell_corners_indeces, data_point, fx);
 					//interpolate for vy
-					force.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, fy);	
+					force.y = bilinear_interpolation(cell_corners_indeces, data_point, fy);	
 				}
 
 				/*
@@ -539,21 +545,24 @@ void visualize(void)
 	{
 		//variables used to create grid cells and to iterate through them
 		grid_cell cell;
-		//the next 2 are used to fit into cell creating fucntions pattern
+		//the next 2 are used to fit into cell creating functions pattern
 		vector cell_iterator;
 		vector step;
 		step.x = 1;
 		step.y = 1;
 		//vector coordinates and magnitude in the given cell
-		vector velocity;
-		fftw_real vel_magnitude;
+		vector current_point_velocity, next_point_velocity;
 		//clicked point's coordinates within a cell in [0;1]
-		point data_point;
+		point point_coord_in_cell, prev_point, current_point, next_point;
+		int_coord cell_coord_in_grid;
+		cell_sample_points cell_corners_indeces;
 
-		int i, j, k, idx1, idx2, idx3, idx4;
+		int k;
+		float norm, streamline_length;  
+		float step_size = 0.5 * hn, max_length = streamline_length_scaling_factor * hn; 
 
 		for (cell_iterator.x = 0; cell_iterator.x < DIM - 0.1; cell_iterator.x += step.x)
-			for (cell_iterator.y = 2; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)
+			for (cell_iterator.y = 0; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)
 			{
 				/*
 				 * Step 1: initialize cell grid. It's used for positioning glyphs on the visualization window.
@@ -561,59 +570,112 @@ void visualize(void)
 				initialize_cell(&cell, wn, hn, cell_iterator, step);
 				
 				//Eventually draw the cell grid
-				if(draw_glyph_grid)
+				if(draw_glyph_grid && cell_iterator.y >= 2)
 				{
 					draw_cell(&cell);
 				}
 				
-				//printf("%f %f %f %f\n", cell_iterator.x, cell_iterator.y, cell.x, cell.y);
-				//draw_cones(cell, velocity, vec_scale);
-
+				/*
+				 * Step 2: for each selected point in the screen, identify the cell they belong to, draw the point and set color for it.
+				 * Screen's origin is in the top left corner, whereas the cell grid starts from bottom left corner.
+				 */ 
 				for(k = 1; k <= seeds_count; k++)
 				{
-					//check if the seed is in the current cell
+					//Find the cell where a clicked point is.
 					if(cell.x <= seed[k].a && seed[k].a < cell.x + cell.width)
 						if(cell.y - cell.height <= seed[k].b && seed[k].b < cell.y)			//as cell indexing starts from top left corner
 						{
-							//grid_cell_y = winHeight - ((int) hn + 1) - seed.s;
+							//Compute the coordinates of the clicked point in the given cell.
+							//This helps to obtain the offset of the point related to the bottom left corner of the cell.
+							point_coord_in_cell.r = seed[k].a/cell.width;
+							point_coord_in_cell.s = seed[k].b/cell.height;
+							//Get the cell's indeces in the grid
+							cell_coord_in_grid.a = (int) point_coord_in_cell.r;
+							cell_coord_in_grid.b = (int) point_coord_in_cell.s;
+							cell_coord_in_grid.b = DIM - cell_coord_in_grid.b - 1; 
+							//Get fractional part which shows where in the cell was the point clicked. 
+							point_coord_in_cell.r -= cell_coord_in_grid.a;
+							point_coord_in_cell.s -= cell_coord_in_grid.b;
+							
+							//Compute the indeces of the sample points placed at the corners of the cell where the point was clicked
+							cell_corners_indexing(cell_coord_in_grid.a, cell_coord_in_grid.b, &cell_corners_indeces);
 						
-							//compute the coordinates of the clicked point in the given cell
-							//obtain the offset of the point related to the bottom left corner of the cell
-							data_point.r = seed[k].a/cell.width;
-							data_point.s = seed[k].b/cell.height;
+							//printf("%d %d %d %d\n", cell_corners_indeces.idx1, cell_corners_indeces.idx2, cell_corners_indeces.idx3, cell_corners_indeces.idx4);
 						
-							//get fractional part
-							data_point.r -= cell_iterator.x;
-							data_point.s = 1 - (cell_iterator.y - data_point.s);
-						
-							//printf("%f %f %f %f %f\n", seed.r, seed.s, cell.y, data_point.r, data_point.s);
-						
-							//get the indeces for the cell's corners. Screen's origin is in the top left corner, whereas the cell grid starts from bottom left corner
-							//Thus, the coordinates of the selected point should be translated into coordinates in the cell grid's system (only on Y axis)
-							i = (int) cell_iterator.x;
-							j = (int) DIM - cell_iterator.y + 1;
-							cell_corners_indexing(i, j, &idx1, &idx2, &idx3, &idx4);
-						
-							//printf("%f %f| %d %d |%d %d %d %d\n", cell_iterator.x, cell_iterator.y, i, j, idx1, idx2, idx3, idx4);
-						
-							//get the velocity value by doing piecewise linear interpolation for the given cell
-							//interpolate for vx
-							velocity.x = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vx);
-							//interpolate for vy
-							velocity.y = bilinear_interpolation(idx1, idx2, idx3, idx4, data_point, vy);
-						
-							//get the vector magnitude
-							vel_magnitude = vector_magnitude(velocity.x, velocity.y);
-							vel_magnitude *= V_SCALE_FACTOR;
-							//set color based on velocity magnitude
-							set_colormap(vel_magnitude);
-						
-							//cel indexing starts from bottom-left corner
-							cell.y = winHeight - cell.y;
-							if(cell_iterator.y >= 2)
+							//Get the velocity's value by doing piecewise linear interpolation for the given cell
+							current_point_velocity.x = bilinear_interpolation(cell_corners_indeces, point_coord_in_cell, vx);
+							current_point_velocity.y = bilinear_interpolation(cell_corners_indeces, point_coord_in_cell, vy);
+							
+							//Create the new points in the streamline starting from the current seed point
+							current_point.r = (float) seed[k].a;
+							current_point.s = (float) seed[k].b;
+							
+							//Draw seed points 
+							if(streamline_type == POINTS && cell_iterator.y >= 2)
 							{
-								draw_seed_points(cell);
-								//draw_cones(cell, velocity, vec_scale);
+								draw_points(current_point, current_point_velocity, 0);
+							}
+							
+							//printf("%f %f %f %f %f\n", current_point.r, current_point.s, current_point_velocity.x, current_point_velocity.y, vector_normalize(current_point_velocity));
+							
+							if(current_point_velocity.x != 0 || current_point_velocity.y != 0)
+							{
+								for(streamline_length = 0; streamline_length < max_length; streamline_length += step_size)
+								{
+									//Firstly, normalize the vector values at the current point
+									norm = vector_normalize(current_point_velocity);
+									current_point_velocity.x /= norm;
+									current_point_velocity.y /= norm;
+								
+									//Then, compute next point's coordinates using Euclidean integration
+									next_point.r = current_point.r + current_point_velocity.x*step_size;
+									//because on Oy axis the direction should be inverse due to the fact that the coordinates start from top-left corner and sample points from bottom left
+									next_point.s = current_point.s - current_point_velocity.y*step_size;
+									
+									//if the next point is in the cell grid, proceed further
+									if(next_point.r >= 0 && next_point.r <= 50*wn && next_point.s >= hn && next_point.s <= 49*hn)
+									{
+										//the next point becomes the current point so a new point can be generated. Beforehand, the current point becomes the prev point.
+										//It's original coordinates are kept as the current point's coordinates and used for drawing lines
+										prev_point.r = current_point.r;
+										prev_point.s = current_point.s;
+										current_point.r = next_point.r;
+										current_point.s = next_point.s;
+								
+										//Compute the coordinates of the clicked point in the given cell.
+										//This helps to obtain the offset of the point related to the bottom left corner of the cell.
+										next_point.r /= cell.width;
+										next_point.s /= cell.height;
+										//get the integer part that shows the cell's indeces in the grid starting from top left corner
+										cell_coord_in_grid.a = (int) next_point.r;
+										cell_coord_in_grid.b = (int) next_point.s;
+										cell_coord_in_grid.b = DIM - cell_coord_in_grid.b - 1; 
+										//get fractional part which shows where in the cell was the point clicked. 
+										next_point.r -= cell_coord_in_grid.a;
+										next_point.s -= cell_coord_in_grid.b;
+								
+										//Compute the indeces of the sample points placed at the corners of the cell where the point was clicked
+										cell_corners_indexing(cell_coord_in_grid.a, cell_coord_in_grid.b, &cell_corners_indeces);
+									
+										//printf("%d %d %d %d\n", cell_corners_indeces.idx1, cell_corners_indeces.idx2, cell_corners_indeces.idx3, cell_corners_indeces.idx4);
+									
+										//Compute the velocity's value by doing piecewise linear interpolation for the given cell
+										next_point_velocity.x = bilinear_interpolation(cell_corners_indeces, next_point, vx);
+										next_point_velocity.y = bilinear_interpolation(cell_corners_indeces, next_point, vy);
+										
+										current_point_velocity.x = next_point_velocity.x;
+										current_point_velocity.y = next_point_velocity.y;
+
+										if(streamline_type == POINTS)
+										{
+											draw_points(current_point, current_point_velocity, streamline_length);
+										}
+										if(streamline_type == LINES)
+										{
+											draw_lines(prev_point, current_point, current_point_velocity);
+										}
+									}
+								}
 							}
 						}
 				}
@@ -709,8 +771,8 @@ void keyboard(unsigned char key, int x, int y)
 			{
 				matter_clamp = 0;
 				printf("Set smoke color scale interval range\n");
-				printf("Insert lower value and upper value:\n");
-				scanf("%f %f", &matter_scale_lmin, &matter_scale_lmax);
+				//printf("Insert lower value and upper value:\n");
+				//scanf("%f %f", &matter_scale_lmin, &matter_scale_lmax);
 			}
 			break;
 		case 'K': glyph_scale = 1-glyph_scale; 
@@ -773,6 +835,19 @@ void keyboard(unsigned char key, int x, int y)
 				no_glyphs_y = 50;
 			}
 			break;
+		case 'f': streamline_length_scaling_factor += 5;
+			if(streamline_length_scaling_factor == 30)
+			{
+				streamline_length_scaling_factor = 5;
+			}
+			break;
+		case 'g':
+			streamline_type++;
+			if (streamline_type > LINES)
+			{
+				streamline_type = POINTS;
+			}
+			break;
 		case '`': draw_glyph_grid = 1 - draw_glyph_grid; 
 				break;    
 		case 'q': exit(0);
@@ -780,7 +855,7 @@ void keyboard(unsigned char key, int x, int y)
 }
 
 // drag: When the user drags with the mouse, add a force that corresponds to the direction of the mouse
-//       cursor movement. Also inject some new matter into the field at the mouse location.
+// cursor movement. Also inject some new matter into the field at the mouse location.
 void drag(int mx, int my)
 {
 	//if(vis_tech != STREAMLINES)
@@ -855,20 +930,17 @@ int main(int argc, char **argv)
 	printf("V/v:   increase decrease fluid viscosity\n");
 	printf("x:     toggle thru visualization techniques: matter/glyphs/streamlines\n");
 	printf("a:     toggle the animation on/off\n");
-	printf("m:     toggle thru scalar coloring\n");
-	printf("M:     toggle thru glyphs coloring (only when direction coloring is on)\n");
-	printf("n:     toggle thru scalar shown attributes (density, velocity magnitude, force magnitude) \n");
-	printf("N:     toggle thru vector shown attributes (velocity, force, rho gradient, vel magnitude gradient)\n");
-	printf("b:     change color bands for smoke: 2->256\n");
-	printf("B:     change color bands for glyphs: 2->256 (only when direction coloring is on)\n");
-	printf("j:     toggle the smoke color map clamping on/off\n");
-	printf("J:     toggle the glyph color map clamping on/off (only when direction coloring is on)\n");
-	printf("k:     toggle the smoke color map scaling on/off\n");
-	printf("K:     toggle the glyph color map scaling on/off (only when direction coloring is on)\n");
-	printf("l:     toggle the smoke hsv coloring on/off\n");
-	printf("L:     toggle the glyph hsv coloring on/off (only when direction coloring is on)\n");
+	printf("m/M:   toggle thru coloring of matter/direction (only when direction coloring is on)\n");
+	printf("b/B:   change color bands for smoke/ glyphs (only when direction coloring is on):2->256\n");
+	printf("n:     toggle thru scalar attributes (density, velocity magnitude, force magnitude) \n");
+	printf("N:     toggle thru vector attributes (velocity, force, rho gradient, vel magnitude gradient)\n");
+	printf("j/J:   toggle the colormap clamping on/off for matter/direction (only when direction coloring is on)\n");
+	printf("k/K:   toggle the colormap scaling on/off for matter/direction (only when direction coloring is on)\n");
+	printf("l/L:   toggle the hsv coloring on/off for matter/direction (only when direction coloring is on)\n");
 	printf("z:     toggle thru glyphs types\n");
 	printf("d/D:   toggle thru glyphs number on x/y axis\n");
+	printf("f:     change streamline's length\n");
+	printf("g:     toggle thru streamlines' rendering type\n");
 	printf("q:     quit\n\n");
 
 	glutInit(&argc, argv);

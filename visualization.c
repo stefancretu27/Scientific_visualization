@@ -20,6 +20,9 @@ extern unsigned short int no_glyphs_x, no_glyphs_y;
 extern matter_attribute show_matter_attribute;							//default shown attribute
 extern colormap matter_color_type;        								//default method for smoke attributes coloring
 extern unsigned int matter_color_bands;									//default number of color bands
+extern bool matter_scale;
+extern bool matter_clamp;
+extern float matter_clamp_lmin, matter_clamp_lmax, matter_scale_lmax, matter_scale_lmin;
 
 //GLYPH_GLOBALS
 extern colormap glyph_color_type;         								//method for force&velocity coloring
@@ -30,6 +33,11 @@ extern glyphs_type show_glyph_type;
 //functions used for setting colors. They're defined and implemented in fluids.c
 extern void set_colormap(float scalar_value);
 extern void direction_to_color(float x, float y, float value, unsigned short int type);
+
+//Parameters used of rocmputing streamlines
+float Xmin = -5, Xmax = 5;							//Range of variable x that we sample
+float Ymin = -5, Ymax = 5;							//Range of variable y that we sample
+int Nx = 50, Ny	= 50;								//Number of samples taken along the x and y axes
 
 /*
  * Struct related functions
@@ -62,6 +70,11 @@ void draw_cell(grid_cell *cell)
 /*
  * Helper functions section
  */
+
+fftw_real vector_normalize(vector v)
+{
+	return (fftw_real) sqrt(v.x*v.x + v.y*v.y);
+}
 
 fftw_real vector_magnitude(fftw_real x, fftw_real y)
 {
@@ -103,21 +116,6 @@ float direction2angle(float x, float y)
 	y/=n; 
 
 	return atan2(x,-y) * (180 / M_PI);
-
-	/*float cosa = x;
-	float sina = y;
-	float a;
-	
-	if (sina >= 0)
-	{
-		a = acos(cosa);
-	}
-	else
-	{
-		a = 2*M_PI - acos(cosa);
-	}*/
-		
-	//return 180*a/M_PI;
 }
 
 /* 
@@ -265,11 +263,7 @@ void rgb2hsv(float r, float g , float b, float *h, float *s, float *v)
 			*h += 1;
 		}
 	}//chromatic case
-	
-	//scale output values in [0;1]
-	//clamp_value_to_01(h);
-	//clamp_value_to_01(s);
-	//clamp_value_to_01(v);
+
 }
 
 //convert from hsv to rgb. Taken from the book, section 3.6.3
@@ -306,9 +300,75 @@ void hsv2rgb(float h, float s, float v, float *r, float *g, float *b)
 /*
  * Function used to scale a range x0..x1 to a new range y0..y1: y = y0 + (y1 - y0) * (x - x0) / (x1 - x0)
  */
-float set_scale(float value, float x0, float x1,  float y0, float y1)
+void compute_attributes_min_max(fftw_real *rho, fftw_real *vx, fftw_real *vy, fftw_real *fx, fftw_real *fy, float *min, float *max)
 {
-     return ((y1 - y0) * (value - x0) / (x1 - x0)) + y0;
+	int i;
+	fftw_real magn, attr_min, attr_max;
+	
+	if(show_matter_attribute == DENSITY)
+	{
+		attr_min = attr_max = rho[0];
+		for (i = 1; i < DIM * DIM; i++)
+		{
+			if(rho[i] < attr_min)
+			{
+				attr_min = rho[i];
+			}
+			if(rho[i] > attr_max)
+			{
+				attr_max = rho[i];
+			}
+		}
+			
+		*min = attr_min;
+		*max = attr_max; 
+	}
+	else if(show_matter_attribute == VELOCITY_MAGNITUDE)
+	{
+		attr_min = attr_max = vector_magnitude(vx[0], vy[0]);
+		for (i = 1; i < DIM * DIM; i++)
+		{
+			magn = vector_magnitude(vx[i], vy[i]);
+			if(magn < attr_min)
+			{
+				attr_min = magn;
+			}
+			if(magn > attr_max)
+			{
+				attr_max = magn;
+			}
+		}
+			
+		*min = attr_min;
+		*max = attr_max;
+	}
+	else if(show_matter_attribute == FORCE_MAGNITUDE)
+	{
+		attr_min = attr_max = vector_magnitude(fx[0], fy[0]);
+		for (i = 1; i < DIM * DIM; i++)
+		{
+			magn = vector_magnitude(fx[i], fy[i]);
+			if(magn < attr_min)
+			{
+				attr_min = magn;
+			}
+			if(magn > attr_max)
+			{
+				attr_max = magn;
+			}
+		}
+			
+		*min = attr_min;
+		*max = attr_max;
+	}
+} 
+ 
+float set_scale(float value, float x0, float x1, float y0, float y1)
+{
+	if(x1 >= 1)
+		return ((y1 - y0) * (value - y0) / (x1 - x0)) + y0;
+	else
+		return ((x1 - x0) * (value - y0) / (y1 - y0)) + y0;
 }
 /*
  * Function used to clamp a vlue to a user predefined interval.
@@ -405,7 +465,7 @@ void draw_matter_fluid_smoke(fftw_real wn, fftw_real hn, fftw_real *rho, fftw_re
 //Draw color legend for smoke/fluid/matter/scalar
 void draw_matter_color_legend()
 {
-	unsigned short int i;
+	unsigned short int i, val;
 	const unsigned short int max_displayable_values = 32;
 	float color_value, x_size, y_size;
 	char buffer[10]={'\0'}, buffer2[30]={'\0'};
@@ -442,10 +502,17 @@ void draw_matter_color_legend()
 	{
 		//obtain the color value depending on the selected number of color bands
 		color_value = (float) i;
-		color_value /= matter_color_bands;
-		
-		//create a buffer to store the float value to be ouputed on the legend
-		sprintf(buffer, "%0.3f", color_value);
+		if(!matter_scale)
+		{
+			color_value /= matter_color_bands;
+		}
+		else
+		{
+			if(show_matter_attribute == VELOCITY_MAGNITUDE)
+			{
+				color_value *= 3.5;
+			}
+		}
 	
 		//draw rectangle containing the color set for the given value
 		glBegin(GL_QUADS);
@@ -456,23 +523,42 @@ void draw_matter_color_legend()
 		glVertex2f(i*x_size, 0); 			//down left corner
 		glEnd();
 		
+		//create a buffer to store the float value to be ouputed on the legend
+		if(matter_scale)
+		{
+			if(show_matter_attribute == VELOCITY_MAGNITUDE)
+			{
+				color_value /= 3.5;
+			}
+			color_value = set_scale(color_value, matter_scale_lmin, matter_scale_lmax, 0, 1);
+		}
+	
+		//apply clamping. clamp_lmin and clamp_lmax are set by the user
+		if(matter_clamp)
+		{
+			color_value = clamp_value(color_value, matter_clamp_lmin, matter_clamp_lmax);
+		}
+		sprintf(buffer, "%0.3f", color_value);
+		
 		//display text
 		//show color values
 		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
 		if(matter_color_bands <= max_displayable_values)
 		{
 			glRasterPos2f((i+0.5)*x_size, 30);
+			//glClear(GL_COLOR_BUFFER_BIT);
 			glColor3f(1.0f, 1.0f, 1.0f);
 			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 		}
 		//Thus, for color bands higher than 32 there are displayed only 32 values
 		else
 		{
-			unsigned short int val = i%(matter_color_bands/max_displayable_values);
+			val = i%(matter_color_bands/max_displayable_values);
 			
 			if(val == 0)
 			{
 				glRasterPos2f((i+0.5)*x_size, 30);
+				//glClear(GL_COLOR_BUFFER_BIT);
 				glColor3f(1.0f, 1.0f, 1.0f);
 				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, (const unsigned char*) buffer);
 			}
@@ -515,7 +601,6 @@ void draw_glyph_color_legend(unsigned int winWidth, unsigned int winHeight)
 	{
 		//obtain the color value depending on the selected number of color bands
 		color_value = (float) i;
-		color_value /= glyph_color_bands;
 		
 		//create a buffer to store the float value to be ouputed on the legend
 		sprintf(buffer, "%0.3f", color_value);
@@ -859,7 +944,7 @@ void glyphs_scalar_color(float density, vector velocity, vector force)
 	else if(show_matter_attribute == VELOCITY_MAGNITUDE)
 	{
 		magnitude = vector_magnitude( velocity.x, velocity.y);
-		magnitude *= V_SCALE_FACTOR;
+		magnitude *= V_SCALE_FACTOR; 
 						
 		set_colormap(magnitude);
 	}
@@ -913,21 +998,19 @@ fftw_real bilinear_interpolation_initial(int i, int j, float x_offset, float y_o
 }
 
 //functions used for indexing the attributes at the four corners of a cell
-void cell_corners_indexing(int i, int j, int *idx1, int *idx2, int *idx3, int *idx4)
+void cell_corners_indexing(int i, int j, cell_sample_points *cell_corners_indeces)
 {
-	*idx1 = (j*DIM) + i;
-	*idx2 = (j*DIM) + (i+1);
-	*idx3 = ((j + 1)*DIM) + i;
-	*idx4 = ((j + 1)*DIM) + (i+1);
+	(*cell_corners_indeces).idx1 = (j*DIM) + i;
+	(*cell_corners_indeces).idx2 = (j*DIM) + (i+1);
+	(*cell_corners_indeces).idx3 = ((j + 1)*DIM) + i;
+	(*cell_corners_indeces).idx4 = ((j + 1)*DIM) + (i+1);
 }
 
 //currently used version based on the model provided in book, chapter 3.2
-fftw_real bilinear_interpolation(int idx1, int idx2, int idx3, int idx4, point data_point, fftw_real *attribute)
+fftw_real bilinear_interpolation(cell_sample_points cell_corners_indeces, point data_point, fftw_real *attribute)
 {
 	//compute the values of the attribute in the selected 4 points
-	fftw_real f11 = attribute[idx1], f12 = attribute[idx2], f21 = attribute[idx3], f22 = attribute[idx4];
-	
-	//printf("%f %f %f %f\n", f11, f12, f21, f22);
+	fftw_real f11 = attribute[cell_corners_indeces.idx1], f12 = attribute[cell_corners_indeces.idx2], f21 = attribute[cell_corners_indeces.idx3], f22 = attribute[cell_corners_indeces.idx4];
 	
 	//compute the basis function values (linear basis functions)
 	fftw_real q11 = (1 - data_point.r) * (1 - data_point.s); 
@@ -979,27 +1062,25 @@ void compute_velocity_magnitude_gradient(int i, int j, vector step, point data_p
 /*
  * Functions used at step 5
  */
-void draw_seed_points(grid_cell cell)
+void draw_points(point current_point, vector velocity, float step)
 {
 	unsigned short int i;
 	int num_segments = 20;
-	float angle, xx, yy, radius;
+	float angle, xx, yy, radius = 2;
+	fftw_real vel_magnitude;
 	
 	//compute the point's center
-	float cx = cell.x + cell.width*1/2;
-	float cy = cell.y + cell.height*1/2;
+	float cx = current_point.r;
+	//printf("a: %f\n", current_point.s);
+	float cy = winHeight - current_point.s;
+	//printf("b: %f\n", cy);
 	
-	//compute points's radius
-	//float rx = cell.width*1/8;
-	//float ry = cell.height*1/8;
-	if(cell.width <= cell.height)
-	{
-		radius = cell.width*1/6;
-	}
-	else
-	{
-		radius = cell.height*1/6;
-	}
+	//get the vector magnitude
+	vel_magnitude = vector_magnitude(velocity.x, velocity.y);
+	vel_magnitude *= V_SCALE_FACTOR;
+	
+	//set color based on velocity magnitude
+	set_colormap(vel_magnitude);
 	
 	glClear(GL_DEPTH_BUFFER_BIT); 
     glMatrixMode(GL_MODELVIEW);																	//it is applied to object coordinates
@@ -1015,4 +1096,26 @@ void draw_seed_points(grid_cell cell)
         glVertex2f(cx + xx, cy + yy);
     }
     glEnd();
+}
+
+void draw_lines(point prev_point, point current_point, vector velocity)
+{
+	fftw_real vel_magnitude;
+	
+	//printf("%f %f %f %f\n", prev_point.r, winHeight - prev_point.s, current_point.s, winHeight - current_point.s);
+	
+	//get the vector magnitude
+	vel_magnitude = vector_magnitude(velocity.x, velocity.y);
+	vel_magnitude *= V_SCALE_FACTOR;
+	
+	//set color based on velocity magnitude
+	set_colormap(vel_magnitude);
+	
+	glMatrixMode(GL_MODELVIEW);																	
+    glPushMatrix();
+	glBegin(GL_LINE_STRIP);
+	//glBegin(GL_LINES);
+	glVertex2f(prev_point.r, winHeight - prev_point.s);
+	glVertex2f(current_point.r, winHeight - current_point.s);
+	glEnd();
 }
