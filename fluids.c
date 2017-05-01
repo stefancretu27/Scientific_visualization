@@ -2,22 +2,18 @@
 //        the velocity field at the mouse location. Press the indicated keys to change options
 //--------------------------------------------------------------------------------------------------
 
-#include <rfftw.h>              //the numerical simulation FFTW library
+//#include <rfftw.h>              //the numerical simulation FFTW 
 #include <stdio.h>              //for printing the help text
-#include <math.h>               //for various math functions
+
+#include <math.h>               //for various math functions #include
 #include <GL/glut.h>            //the GLUT graphics library
 
-#define PI 3.1415927
-#define MAX_COLOR_BANDS 256
-#define max(x, y) x > y ? x : y
-#define min(x, y) x < y ? x : y
-#define vec_magnitude(x, y) sqrt(x*x + y*y)
-#define bool short int
-#define FALSE 0
-#define TRUE 1
+#include <visualization.h>
 
 //--- SIMULATION PARAMETERS ------------------------------------------------------------------------
-#define DIM 50
+
+unsigned short int no_glyphs_x = 50;
+unsigned short int no_glyphs_y = 50;
 double dt = 0.4;													//simulation time step
 float visc = 0.001;													//fluid viscosity
 fftw_real *vx, *vy;             									//(vx,vy)   = velocity field at the current moment
@@ -28,55 +24,44 @@ rfftwnd_plan plan_rc, plan_cr;  									//simulation domain discretization
 
 
 //--- VISUALIZATION PARAMETERS ---------------------------------------------------------------------
-int   winWidth, winHeight;      									//size of the graphics window, in pixels
-float vec_scale = 1000;												//scaling of hedgehogs
-#define COLOR_BLACKWHITE 0   										//different types of color mapping: black-and-white, rainbow, banded
-#define COLOR_RAINBOW 1
-#define COLOR_SAT 2
-#define V_SCALE_FACTOR 50
-#define F_SCALE_FACTOR 100
-#define MATTER_TYPE 10												//useful for drawing legend or colors, especially in the case of glyphs
-#define GLYPH_TYPE 11
-#define LEGEND_TYPE 12  
-#define SCALAR 0
-#define VECTORIAL 1
-bool frozen = FALSE;   												//toggles on/off the animation
+unsigned int winWidth, winHeight;      									//size of the graphics window, in pixels
+float vec_scale = 1000;													//scaling of hedgehogs
+bool frozen = FALSE;   													//toggles on/off the animation
+bool draw_glyph_grid = FALSE;
+visualization_technique vis_tech = MATTER;
 
 //scalar-related global data: matter
-bool draw_matter = FALSE;           								//draw the matter (1) or not (0)
-unsigned short int matter_color_type = COLOR_BLACKWHITE;        	//default method for smoke attributes coloring
-#define SHOW_DENSITY 20												//matter attributes encoding
-#define SHOW_VELOCITY_MAGNITUDE 21
-#define SHOW_FORCE_MAGNITUDE 22
-unsigned short int show_matter_attribute = SHOW_DENSITY;			//default shown attribute
-unsigned int matter_color_bands = 2;								//default number of color bands
-bool matter_enable_hsv = FALSE;										//default hsv colormap
-float matter_scale_h = 0, matter_scale_s = 0, matter_scale_v = 0;	//amount by which h,s,v are increased
-bool matter_scale = FALSE;											//default colormap scaling
-float matter_scale_lmin = 0, matter_scale_lmax = 0;					//the limits of the interval to be scaled
-bool matter_clamp = FALSE;											//default colormap clamping
-float matter_clamp_lmin = 0, matter_clamp_lmax = 0;					//the limits to which a value is clamped
+bool draw_matter = FALSE;           									//draw the matter (1) or not (0)
+matter_attribute show_matter_attribute = DENSITY;						//default shown attribute
+colormap matter_color_type = BLACKWHITE;        						//default method for smoke attributes coloring
+unsigned int matter_color_bands = 2;									//default number of color bands
+bool matter_enable_hsv = FALSE;											//default hsv colormap
+float matter_scale_h = 0, matter_scale_s = 0, matter_scale_v = 0;		//amount by which h,s,v are increased
+bool matter_scale = FALSE;												//default colormap scaling
+float matter_scale_lmin = 0, matter_scale_lmax = 0;						//the limits of the interval to be scaled
+bool matter_clamp = FALSE;												//default colormap clamping
+float matter_clamp_lmin = 0, matter_clamp_lmax = 0;						//the limits to which a value is clamped
 
 //vector-related global data: glyphs
-bool draw_vecs = TRUE;												//draw glyphs or not (if not, matter is drawn)
-bool color_dir = TRUE;            									//use direction color-coding or not (if not, glyphs are colored using scalar values => 2 types of data are shown)
-unsigned short int glyph_color_type = COLOR_BLACKWHITE;         	//method for force&velocity coloring
-#define SHOW_VELOCITY 30											//vector field attributes encoding
-#define SHOW_FORCE 31
-unsigned short int show_glyph_attribute = SHOW_VELOCITY;  			//draw the velocity or force
-#define SHOW_HEDGEHOGS 40											//glyphs' types encoding
-#define SHOW_CONES 41
-#define SHOW_ELLIPSES 42
-unsigned short int show_glyph_type = SHOW_HEDGEHOGS;
-unsigned int glyph_color_bands = 2;									//default number of color bands
-bool glyph_enable_hsv = FALSE;										//default hsv colormap
-float glyph_scale_h = 0, glyph_scale_s = 0, glyph_scale_v = 0;		//amount by which h,s,v are increased
-bool glyph_scale = FALSE;											//default colormap scaling
-float glyph_scale_lmin = 0, glyph_scale_lmax = 0;					//the limits of the interval to be scaled
-bool glyph_clamp = FALSE;											//default colormap clamping
-float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;					//the limits to which a value is clamped
+bool draw_vecs = TRUE;													//draw glyphs or not (if not, matter is drawn)
+bool color_dir = TRUE;            										//use direction color-coding or not (if not, glyphs are colored using scalar values => 2 types of data are shown)
+colormap glyph_color_type = BLACKWHITE;         						//method for force&velocity coloring
+unsigned int glyph_color_bands = 2;										//default number of color bands
+glyphs_attribute show_glyph_attribute = VELOCITY;  						//draw the velocity or force
+glyphs_type show_glyph_type = HEDGEHOGS;
+bool glyph_enable_hsv = FALSE;											//default hsv colormap
+float glyph_scale_h = 0, glyph_scale_s = 0, glyph_scale_v = 0;			//amount by which h,s,v are increased
+bool glyph_scale = FALSE;												//default colormap scaling
+float glyph_scale_lmin = 0, glyph_scale_lmax = 0;						//the limits of the interval to be scaled
+bool glyph_clamp = FALSE;												//default colormap clamping
+float glyph_clamp_lmin = 0, glyph_clamp_lmax = 0;						//the limits to which a value is clamped
 
-#define DEF_D 5
+//streamlines-related data
+int_coord *seed;
+int seeds_count = -1;
+unsigned short int streamline_length_scaling_factor = 5;
+streamlines_type streamline_type = POINTS;
+
 
 //------ SIMULATION CODE STARTS HERE -----------------------------------------------------------------
 
@@ -102,6 +87,8 @@ void init_simulation(int n)
 
 	for (i = 0; i < n * n; i++)                      //Initialize data structures to 0
 	{ vx[i] = vy[i] = vx0[i] = vy0[i] = fx[i] = fy[i] = rho[i] = rho0[i] = 0.0f; }
+	
+	seed = (int_coord*)calloc(MAX_SEEDS, sizeof(int_coord));
 }
 
 
@@ -247,187 +234,7 @@ void do_one_simulation_step(void)
 
 
 //------ VISUALIZATION CODE STARTS HERE -----------------------------------------------------------------
-//Helper function to scale any value to [0;1]
-void scale_value(float *value)
-{
-	if (*value < 0)
-	{
-		*value = 0;
-	}
-	if (*value > 1)
-	{
-		*value = 1;
-	}
-}
-
-//rainbow: Implements a color palette, mapping the scalar 'value' to a rainbow color RGB. Taken form the book, section 5.2
-void rainbow(float value, float* R, float* G, float* B)
-{
-	const float dx=0.8;
-	scale_value(&value);
-	
-	value = (6-2*dx)*value+dx;
-	*R = max(0.0,(3-fabs(value-4)-fabs(value-5))/2);
-	*G = max(0.0,(4-fabs(value-2)-fabs(value-4))/2);
-	*B = max(0.0,(3-fabs(value-1)-fabs(value-2))/2);
-}
-
-void grayscale(float value, float *R, float *G, float *B)
-{
-	*R = *G = *B = value;
-}
-
-//green_saturation: implements a green-based color palette. Taken form the book sample 5
-void green_saturation(float value, float *R, float *G, float *B)
-{
-	float r = 0, g = 1, b = 0;
-	
-	scale_value(&value);
-	
-	if (value < 0.5)										//value in [0,0.5]: modulate the luminance from black to the base-color.
-	{   
-		*R = 2*value*r;
-		*G = 2*value*g;
-		*B = 2*value*b;
-	}
-	else													//value in [0.5,1]: modulate the saturation from base-color to white.
-	{	
-		value = 2*(value-0.5);
-		*R = (1-value)*r + 1*value;
-		*G = (1-value)*g + 1*value;
-		*B = (1-value)*b + 1*value;
-	}
-}
-
-//red_saturation: implements a red-based color palette. Variation of the above color map
-void red_saturation(float value, float *R, float *G, float *B)
-{
-	float r = 1, g = 0, b = 0;
-	
-	scale_value(&value);
-	
-	if (value < 0.5)										//value in [0,0.5]: modulate the luminance from black to the base-color.
-	{   
-		*R = 2*value*r;
-		*G = 2*value*g;
-		*B = 2*value*b;
-	}
-	else													//value in [0.5,1]: modulate the saturation from base-color to white.
-	{	
-		value = 2*(value-0.5);
-		*R = (1-value)*r + 1*value;
-		*G = (1-value)*g + 1*value;
-		*B = (1-value)*b + 1*value;
-	}
-}
-
-//this is like dividing the interval [0;1] (which is considered in every coloring function)
-//in a number of subintervals equal to "bands" and assign a color for each head of every interval
-//bands = 2 => 3 colors, only RGB; bands = 4 => 5 colors, one between R and G (yellow) the other one between B and G (bright blue)
-float set_color_bands(float value, unsigned short int type)
-{
-	unsigned short int bands;
-	
-	if(type == SCALAR)
-	{
-		bands = matter_color_bands;
-	}
-	
-	if(type == VECTORIAL)
-	{
-		bands = glyph_color_bands;
-	}
-	
-	value *= bands;
-	value = (int)(value);
-	return value/bands;
-}
-
-//convert from rgb to hsv. Taken from the book, section 3.6.3
-void rgb2hsv(float r, float g , float b, float *h, float *s, float *v)
-{
-	//scale input values in [0;1]
-	scale_value(&r);
-	scale_value(&g);
-	scale_value(&b);
-	
-	float M1 = max(g, b);
-	float M = max(r, M1);
-	float m1 = min(g, b);
-	float m = min(r, m1);
-	float d = M-m;
-	*v = M; //value = max( r, g, b)
-	*s = (M > 0.00001)?d/M:0; //saturation
-	if (*s == 0) 
-	{
-		*h = 0;
-	}//achromatic case , hue=0 by convention
-	else
-	{
-		if(r == M)
-		{
-			*h = (g - b)/d;
-		}
-		else if(g == M) 
-		{
-			*h = 2 + (b - r)/d;
-		}
-		else
-		{
-			*h = 4 + (r - g)/d ;
-		}
-		
-		*h /= 6 ;
-		if(h < 0) 
-		{
-			*h += 1;
-		}
-	}//chromatic case
-	
-	//scale output values in [0;1]
-	//scale_value(h);
-	//scale_value(s);
-	//scale_value(v);
-}
-
-//convert from hsv to rgb. Taken from the book, section 3.6.3
-void hsv2rgb(float h, float s, float v, float *r, float *g, float *b)
-{
-	//scale input values in [0;1]
-	scale_value(&h);
-	scale_value(&s);
-	scale_value(&v);
-		
-	int hueCase = (int) (h*6);
-	float frac = 6*h - hueCase;
-	float lx = v*(1 - s);
-	float ly = v*(1 - s*frac);
-	float lz = v*(1 - s*(1 - frac));
-	
-	switch(hueCase)
-	{
-		case 0:
-		case 6: *r = v; *g = lz; *b = lx; break; // 0<hue<1/6
-		case 1: *r = ly; *g = v ; *b = lx; break; // 1/6<hue<2/6
-		case 2: *r = lx; *g = v ; *b = lz; break; // 2/6<hue<3/6
-		case 3: *r = lx; *g = ly; *b = v; break; // 3/6<hue/4/6
-		case 4: *r = lz; *g = lx; *b = v; break; // 4/6<hue<5/6
-		case 5: *r = v; *g = lx; *b = ly; break; // 5/6<hue<1
-	}
-	
-	//scale output values in [0;1]
-	scale_value(r);
-	scale_value(g);
-	scale_value(b);
-}
-
-//To scale a range x0..x1 to a new range y0..y1: y = y0 + (y1 - y0) * (x - x0) / (x1 - x0)
-float set_scale(float value, float x0, float x1,  float y0, float y1)
-{
-     return ((y1 - y0) * (value - x0) / (x1 - x0)) + y0;
-}
-
-//set_colormap: Sets three different types of colormaps for smoke
+//set_colormap: Sets three different types of colormaps for matter
 void set_colormap(float scalar_value)
 {
 	float r, g, b, h, s, v;
@@ -435,39 +242,34 @@ void set_colormap(float scalar_value)
 	//apply color scalling. scale_lmin and scale_lmax are set by the user. The interval [0;1] is scaled to the user-inserted interval
 	if(matter_scale)
 	{
+		compute_attributes_min_max(rho, vx, vy, fx, fy, &matter_scale_lmin, &matter_scale_lmax);
+
 		scalar_value = set_scale(scalar_value, matter_scale_lmin, matter_scale_lmax, 0, 1);
 	}
 	
 	//apply clamping. clamp_lmin and clamp_lmax are set by the user
 	if(matter_clamp)
 	{
-		if(scalar_value < matter_clamp_lmin)
-		{
-			scalar_value = matter_clamp_lmin;
-		}
-		
-		if(scalar_value > matter_clamp_lmax)
-		{
-			scalar_value = matter_clamp_lmax;
-		}
+		scalar_value = clamp_value(scalar_value, matter_clamp_lmin, matter_clamp_lmax);
 	}
 
 	//apply color bands
 	scalar_value = set_color_bands(scalar_value, SCALAR);
-
-	if (matter_color_type == COLOR_BLACKWHITE)
+	
+	//apply color mapping
+	if (matter_color_type == BLACKWHITE)
 	{
-		glClearColor(0.6, 0.4, 0.2, 0);							//set background color
+		//glClearColor(0.6, 0.4, 0.2, 0);							//set background color
 		grayscale(scalar_value, &r, &g, &b);
 	}
-	else if (matter_color_type == COLOR_RAINBOW)
+	else if (matter_color_type == RAINBOW)
 	{
-		glClearColor(0.0, 0.0, 0.0, 0);							//set background color
+		//glClearColor(0.0, 0.0, 0.0, 0);							//set background color
 		rainbow(scalar_value, &r, &g, &b);
 	}
-	else if (matter_color_type == COLOR_SAT)
+	else if (matter_color_type == SATURATION)
 	{
-		glClearColor(0.2, 0.0, 0.2, 0);							//set background color
+		//glClearColor(0.2, 0.0, 0.2, 0);							//set background color
 		green_saturation(scalar_value, &r, &g, &b);
 	}
 
@@ -492,7 +294,7 @@ void set_colormap(float scalar_value)
 }
 
 //direction_to_color: Set the current color by mapping a direction vector (x,y) for the glyphs
-void direction_to_color(float x, float y, float value, unsigned short int type)
+void direction_to_color(vector vec, float value, unsigned short int type)
 {
 	float r, g, b, h, s, v, color_value;
 	
@@ -500,7 +302,7 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	if(type == GLYPH_TYPE)
 	{
 		//compute the value whose color is to be set
-		color_value = atan2(y,x)/PI + 1;
+		color_value = atan2(vec.y, vec.x)/M_PI + 1;
 	}
 	//if function is called for drawing color legend for glyphs
 	if(type == LEGEND_TYPE)
@@ -517,33 +319,25 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	//apply clamping. clamp_lmin and clamp_lmax are set by the user
 	if(glyph_clamp)
 	{
-		if(color_value < glyph_clamp_lmin)
-		{
-			color_value = glyph_clamp_lmin;
-		}
-		
-		if(color_value > glyph_clamp_lmax)
-		{
-			color_value = glyph_clamp_lmax;
-		}
+		color_value = clamp_value(color_value, glyph_clamp_lmin, glyph_clamp_lmax);
 	}
 
 	//apply color bands
 	color_value = set_color_bands(color_value, VECTORIAL);
 	
-	if (glyph_color_type == COLOR_BLACKWHITE)
+	if (glyph_color_type == BLACKWHITE)
 	{
 		glClearColor(0.6, 0.4, 0.2, 0);
 		grayscale(color_value, &r, &g, &b);
 	}
-	else if (glyph_color_type == COLOR_RAINBOW)
+	else if (glyph_color_type == RAINBOW)
 	{
-		glClearColor(0.0, 0.0, 0.0, 0);
+		//glClearColor(0.0, 0.0, 0.0, 0);
 		rainbow(color_value, &r, &g, &b);
 	}
-	else if (glyph_color_type == COLOR_SAT)
+	else if (glyph_color_type == SATURATION)
 	{
-		glClearColor(0.0, 0.2, 0.2, 0);
+		//lClearColor(0.0, 0.2, 0.2, 0);
 		red_saturation(color_value, &r, &g, &b);
 	}
 	
@@ -563,496 +357,330 @@ void direction_to_color(float x, float y, float value, unsigned short int type)
 	glColor3f(r,g,b);
 }
 
-//draw color legend for smoke/fluid/matter
-void draw_matter_color_legend()
-{
-	unsigned short int i;
-	const unsigned short int max_displayable_values = 32;
-	float color_value, x_size, y_size;
-	char buffer[10]={'\0'}, buffer2[30]={'\0'};
-	
-	//rectangle's length on X and Y axes
-	x_size = (float) MAX_COLOR_BANDS*5;
-	x_size /= matter_color_bands + 1;
-	y_size = 20;
-	
-	//show attribute's name		
-	if(show_matter_attribute == SHOW_DENSITY)
-	{
-		sprintf(buffer2, "%s", "Scalar: density");
-		glRasterPos2f(0, 40);
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
-	}
-	else if(show_matter_attribute == SHOW_VELOCITY_MAGNITUDE)
-	{
-		sprintf(buffer2, "%s", "Scalar: velocity magnitude");
-		glRasterPos2f(0, 40);
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
-	}
-	else if(show_matter_attribute == SHOW_FORCE_MAGNITUDE)
-	{
-		sprintf(buffer2, "%s", "Scalar: force magnitude");
-		glRasterPos2f(0, 40);
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
-	}
-	
-	for(i = 0; i <= matter_color_bands; i++)
-	{
-		//obtain the color value depending on the selected number of color bands
-		color_value = (float) i;
-		color_value /= matter_color_bands;
-		
-		//create a buffer to store the float value to be ouputed on the legend
-		sprintf(buffer, "%0.3f", color_value);
-	
-		//draw rectangle containing the color set for the given value
-		glBegin(GL_QUADS);
-		set_colormap(color_value); 			//obtain the color for each value, corresponding to a color band
-		glVertex2f(i*x_size, y_size);		//upper left corner
-		glVertex2f((i+1)*x_size, y_size); 	//upper right corner
-		glVertex2f((i+1)*x_size, 0); 		//down right corner
-		glVertex2f(i*x_size, 0); 			//down left corner
-		glEnd();
-		
-		//display text
-		//show color values
-		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
-		if(matter_color_bands <= max_displayable_values)
-		{
-			glRasterPos2f(i*x_size, 30);
-			glColor3f(1.0f, 1.0f, 1.0f);
-			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
-		}
-		//Thus, for color bands higher than 32 there are displayed only 32 values
-		else
-		{
-			unsigned short int val = i%(matter_color_bands/max_displayable_values);
-			
-			if(val == 0)
-			{
-				glRasterPos2f(i*x_size, 30);
-				glColor3f(1.0f, 1.0f, 1.0f);
-				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
-			}
-		}
-		//end of text displaying
-	}
-}
-
-//draw color legend for glyphs
-void draw_glyph_color_legend()
-{
-	unsigned short int i;
-	const unsigned short int max_displayable_values = 32;
-	float color_value, x_size, y_size;
-	char buffer[10]={'\0'}, buffer2[20]={'\0'};
-	
-	//rectangle's length on X and Y axes
-	x_size = (float) MAX_COLOR_BANDS*5;
-	x_size /= glyph_color_bands + 1;
-	y_size = 20;
-	
-	if(show_glyph_attribute == SHOW_VELOCITY)
-	{
-		sprintf(buffer2, "%s", "Vector field: velocity");
-		glRasterPos2f(0, winHeight-40);
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
-	}
-	else if(show_glyph_attribute == SHOW_FORCE)
-	{
-		sprintf(buffer2, "%s", "Vector field: force");
-		glRasterPos2f(0, winHeight-40);
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer2);
-	}
-	
-	for(i = 0; i <= glyph_color_bands; i++)
-	{
-		//obtain the color value depending on the selected number of color bands
-		color_value = (float) i;
-		color_value /= glyph_color_bands;
-		
-		//create a buffer to store the float value to be ouputed on the legend
-		sprintf(buffer, "%0.3f", color_value);
-				
-		//draw rectangle containing the color set for the given value
-		glBegin(GL_QUADS);		
-		direction_to_color(0, 0, color_value, LEGEND_TYPE);		//obtain the color for each value, corresponding to a color band
-		glVertex2f(i*x_size, winHeight-y_size);					//down left corner
-		glVertex2f((i+1)*x_size, winHeight-y_size); 			//down right corner
-		glVertex2f((i+1)*x_size, winHeight); 					//up right corner
-		glVertex2f(i*x_size, winHeight); 						//up left corner
-		glEnd();
-		
-		//If there are more than 32 color bands and displayed values, the latter overlap and form a smaller color legend
-		if(glyph_color_bands <= max_displayable_values)
-		{
-			glRasterPos2f(i*x_size, winHeight-30);
-			glColor3f(0.8f, 0.8f, 0.8f);
-			glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
-		}
-		else
-		{
-			unsigned short int val = i%(glyph_color_bands/max_displayable_values);
-			
-			if(val == 0)
-			{
-				glRasterPos2f(i*x_size, winHeight-30);
-				glColor3f(1.0f, 1.0f, 1.0f);
-				glutBitmapString(GLUT_BITMAP_TIMES_ROMAN_10, buffer);
-			}
-		}
-	}
-}
-
-//helper function to set color and 2D position for a vertex 
-//it removes a bit the code redundancy :D
-void draw_triangle_vertex( double x, double y, float color_value)
-{
-	set_colormap(color_value);    
-	glVertex2f(x, y);
-}
-//helper function mainly used to clamp glyph's positions to a cell's dimensions
-float clamp_value( float value, float min, float max)
-{
-	if( value < min)
-	{
-		value = min;
-	}
-	if( value > max)
-	{
-		value = max;
-	}
-	
-	return value;
-}
-
-//functions for drawing glyphs. They are called in visualization function
-//attribute: velocity or force; x, y: indeces in the grid
-void draw_hedgehog(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
-{
-	float top_x = (fftw_real)x * cell_width + vec_scale * attribute_x;
-	float top_y = (fftw_real)y * cell_height + vec_scale * attribute_y;
-						
-	//the top of hedgehog can move to left or right no more than one cell's width
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width - cell_width + 0.01, (fftw_real)x * cell_width + cell_width - 0.01);
-						
-	//the top of hedgehog can move to up or down no more than one cell's height
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height - cell_height + 0.01, (fftw_real)y * cell_height + cell_height - 0.01);
-						
-	glBegin(GL_LINES);
-	glVertex2f( (fftw_real)x * cell_width, (fftw_real)y * cell_height);
-	glVertex2f(top_x, top_y);
-	glEnd();
-}
-
-//functions for drawing glyphs. They are called in visualization function
-//attribute: velocity or force; x, y: indeces in the grid
-void draw_cone(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
-{
-	//compute each triangle's vertices' coordinates
-	float top_x = (fftw_real)x * cell_width + cell_width/4 + vec_scale * attribute_x; 
-	float top_y = (fftw_real)y * cell_height + cell_height/2 - 0.01 + vec_scale * attribute_y; 
-						
-	//if adding scaling leads to exceeding the cell's dimensions on x axis, clamp to cell dimensions
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
-						
-	//do not exceed the cell's height. When rotated 90 degrees it shouldn't exceed the cell's width, but it can have intermediary positions
-	//Thus, considers the minimum between cell's height and width, which is known (the height) and the scaling is half of it
-	//as the original glyph height is already the other half. Is like a circle inside the cell, which has the ray = height/2
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01); 
-						 
-	//draw glyph
-	glBegin(GL_TRIANGLES);
-	glVertex2f( (fftw_real)x * cell_width, (fftw_real)y * cell_height);
-	glVertex2f( (fftw_real)x * cell_width + cell_width/2 - 0.01, (fftw_real)y * cell_height);
-	glVertex2f( top_x, top_y);
-	glEnd();
-}
-
-void draw_cone2(int x, int y, float attribute_x, float attribute_y, float cell_width, float cell_height)
-{
-	int i, angle;
-	
-	//compute the base's center and ray
-	float cx = (fftw_real)x * cell_width + cell_width/4;
-	float cy =  (fftw_real)y * cell_height + cell_height/2 - 0.01;
-	float ray = cell_width/4 + vec_scale * attribute_x;
-	
-	//compute the cone's top coordinates
-	float top_x = cx + vec_scale * attribute_x; 
-	float top_y = cy + vec_scale * attribute_y;
-
-	ray = clamp_value(ray, cell_width/4, cell_width/2);
-	top_x = clamp_value(top_x, (fftw_real)x * cell_width, (fftw_real)x * cell_width + cell_width/2 - 0.01);
-	top_y = clamp_value(top_y, (fftw_real)y * cell_height + cell_height/2 - 0.01, (fftw_real)y* cell_height + cell_height - 0.01);
-	
-	//cone's top
-	glBegin(GL_TRIANGLE_FAN);
-	glVertex3f(top_x, top_y, 0);
-    for (i = 0; i < 360; i++)
-    {
-		angle = 2.0f * PI * (float)i/360;
-		glVertex3f(cos(angle) * cell_width/4, sin(angle) * cell_width/4, 0);
-    }
-    glEnd(); 
-    
-    // draw the base of the cone
-	glBegin(GL_TRIANGLE_FAN);
-	glVertex2f((fftw_real)x * cell_width + cell_width/4, (fftw_real)y * cell_height);
-	for (i = 0; i < 360; i++) 
-	{
-		angle = 2.0f * PI * (float)i/360;
-		glVertex3f(sin(angle) * cell_width/4, cos(angle) * cell_width/4, 0);
-	}
-	glEnd();
-}
-
-//cx, cy: center's coordinates, which are the left-bottom corner of a cell
-////attribute: velocity or force; 
-void draw_filled_ellipse(float x, float y, float attribute_x, float attribute_y, float cell_width, float cell_height)
-{
-	unsigned short int i;
-	int num_segments = 20;
-	float angle, xx, yy;
-	//compute the ellipse's center
-	float cx = (fftw_real)x * cell_width;
-	float cy =  (fftw_real)y * cell_height;
-	//compute ellipse's rays
-	float rx = cell_width/4 + vec_scale * attribute_x;
-	float ry = cell_height/4 + vec_scale * attribute_y;
-	
-	//clamp values so the ellipses won't overlap
-	rx = clamp_value(rx, cell_width/4, cell_width/2);
-	ry = clamp_value(ry, cell_height/4, cell_height/2 - 0.5);
-	
-    glBegin(GL_TRIANGLE_FAN);
-    //set the center of circle 
-    glVertex2f(cx, cy); 														
-    for (i = 0; i <= num_segments; i++)   
-    {
-		angle = 2.0f * PI * (float)i/(float)num_segments;
-		xx = rx * cosf(angle);													//calculate the x component 
-        yy = ry * sinf(angle);													//calculate the y component  
-        glVertex2f(cx + xx, cy + yy);
-    }
-    glEnd();
-}
-
-/*void draw_empty_ellipse(float cx, float cy, float attribute_x, float attribute_y, float cell_width, float cell_height) 
-{
-	unsigned short int i;
-	int num_segments = 100;
-	float angle, x, y;
-	//rays for the ellipse
-	float rx = cell_width/4 + vec_scale * attribute_x;
-	float ry = cell_height/4 + vec_scale * attribute_y;
-	
-	rx = clamp_value(rx, cell_width/4, cell_width/2);
-	ry = clamp_value(ry, cell_height/4, cell_height/2 - 0.5);
-	
-    glBegin(GL_LINE_LOOP);
-    for (i = 0; i < num_segments; i++)   
-    {
-        angle = 2.0f * PI * (float)i/(float)num_segments;						//get the current angle 
-        x = rx * cosf(angle);													//calculate the x component 
-        y = ry * sinf(angle);													//calculate the y component 
-        glVertex2f(x + cx, y + cy);												//output vertex 
-    }
-    glEnd();
-}*/
-
-
 //visualize: This is the main visualization function
 void visualize(void)
 {
-	int        i, j, idx;
-	fftw_real  wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);   // Grid cell width
-	fftw_real  hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);  // Grid cell heigh
-
-	if (draw_matter)
+	//compute grid's cells' width and height, counted as pixels
+	fftw_real wn = (fftw_real)winWidth / (fftw_real)(DIM + 1);
+	fftw_real hn = (fftw_real)winHeight / (fftw_real)(DIM + 1);
+	
+	//draw smoke/fluid/matter
+	if (vis_tech == MATTER)
 	{	
-		int idx0, idx1, idx2, idx3;
-		double px0, py0, px1, py1, px2, py2, px3, py3;
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		glBegin(GL_TRIANGLES);
-		for (j = 0; j < DIM - 1; j++)            //draw smoke
-		{
-			for (i = 0; i < DIM - 1; i++)
-			{
-				px0 = wn + (fftw_real)i * wn;
-				py0 = hn + (fftw_real)j * hn;
-				idx0 = (j * DIM) + i;
-
-
-				px1 = wn + (fftw_real)i * wn;
-				py1 = hn + (fftw_real)(j + 1) * hn;
-				idx1 = ((j + 1) * DIM) + i;
-
-
-				px2 = wn + (fftw_real)(i + 1) * wn;
-				py2 = hn + (fftw_real)(j + 1) * hn;
-				idx2 = ((j + 1) * DIM) + (i + 1);
-
-
-				px3 = wn + (fftw_real)(i + 1) * wn;
-				py3 = hn + (fftw_real)j * hn;
-				idx3 = (j * DIM) + (i + 1);
-
-				if(show_matter_attribute == SHOW_DENSITY)
-				{
-					draw_triangle_vertex( px0, py0, rho[idx0]);
-					draw_triangle_vertex( px1, py1, rho[idx1]);
-					draw_triangle_vertex( px2, py2, rho[idx2]);
-
-					draw_triangle_vertex( px0, py0, rho[idx0]);
-					draw_triangle_vertex( px2, py2, rho[idx2]);
-					draw_triangle_vertex( px3, py3, rho[idx3]);
-				}
-				
-				if(show_matter_attribute == SHOW_VELOCITY_MAGNITUDE)
-				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(vx[idx1], vy[idx1])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
-
-					draw_triangle_vertex( px0, py0, vec_magnitude(vx[idx0], vy[idx0])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(vx[idx2], vy[idx2])*V_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(vx[idx3], vy[idx3])*V_SCALE_FACTOR);
-				}
-				
-				if(show_matter_attribute == SHOW_FORCE_MAGNITUDE)
-				{
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px1, py1, vec_magnitude(fx[idx1], fy[idx1])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
-
-					draw_triangle_vertex( px0, py0, vec_magnitude(fx[idx0], fy[idx0])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px2, py2, vec_magnitude(fx[idx2], fy[idx2])*F_SCALE_FACTOR);
-					draw_triangle_vertex( px3, py3, vec_magnitude(fx[idx3], fy[idx3])*F_SCALE_FACTOR);
-				}
-			}
-		}
-		glEnd();
+		//draw the matter
+		draw_matter_fluid_smoke(wn, hn, rho, vx, vy, fx, fy);
 		
 		//draw color legend for matter
 		draw_matter_color_legend();
 	}
-
-	if (draw_vecs)		//draw vectors
+	
+	//draw vectors
+	if (vis_tech == GLYPHS)		
 	{
-		float magnitude = 0.0;
+		//variables used to create grid cells and to iterate through them
+		grid_cell cell;
+		vector cell_iterator;
+		cell_sample_points cell_corners_indeces;
+		
+		//variables used to iterate through the data and to store the data for a given cell
+		int i, j, idx;
+		
+		//needed for storing the interpolation results for each cell
+		fftw_real density;
+		vector velocity, force;
+		
+		//needed to store the gradient computation result
+		vector gradient;
+		
+		//compute grid's' cells' width and height, with respect to the initial data samples grid. 
+		//It is a vector that shows how much the bottom left corner has moved from the original position on both axes.
+		vector step;
+		step.x = (fftw_real) DIM/no_glyphs_x;
+		step.y = (fftw_real) DIM/no_glyphs_y;
+		
+		//compute the ratio with which the glyphs increase. Shows how much the lower left corner has moved from the initial position.
+		point data_point;
+		data_point.r = (step.x - 1);
+		data_point.s = (step.y - 1);
 						
-		for (i = 1; i < DIM; i++)
-			for (j = 1; j < DIM; j++)
+		for (cell_iterator.x = 0; cell_iterator.x < DIM - 0.1; cell_iterator.x += step.x)
+			for (cell_iterator.y = 0; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)									
 			{
-				idx = (j * DIM) + i;
+				i = (int)cell_iterator.x;
+				j = (int)cell_iterator.y;
 				
-				//choose vectorial attribute
-				if(show_glyph_attribute == SHOW_VELOCITY)
-				{	
-					//choose glyphs' color
-					//glyphs are colored based on velocity direction
-					if(color_dir == TRUE)
-					{
-						direction_to_color(vx[idx], vy[idx], 0, GLYPH_TYPE);
-					}
-					else
-					{
-						//set the glyphs' color based on selected scalar field
-						if(show_matter_attribute == SHOW_DENSITY)
-						{
-							set_colormap(rho[idx]);
-						}
-						else if(show_matter_attribute == SHOW_VELOCITY_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( vx[idx], vy[idx]);
-							magnitude *= V_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
-						else if(show_matter_attribute == SHOW_FORCE_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( fx[idx], fy[idx]);
-							magnitude *= F_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
-					}
+				/*
+				 * Step 1: initialize cell grid. It's used for positioning glyphs on the visualization window.
+				 */
+				initialize_cell(&cell, wn, hn, cell_iterator, step);
 				
-					//choose glyphs' type
-					if(show_glyph_type == SHOW_HEDGEHOGS)
-					{
-						draw_hedgehog(i, j, vx[idx], vy[idx], wn, hn);
-					}
-					else if(show_glyph_type == SHOW_CONES)
-					{		
-						draw_cone2(i, j, vx[idx], vy[idx], wn, hn);
-					}
-					else if(show_glyph_type == SHOW_ELLIPSES)
-					{
-						draw_filled_ellipse(i, j, vx[idx], vy[idx], wn, hn);
-					}
+				//Eventually draw the cell grid
+				if(draw_glyph_grid)
+				{
+					draw_cell(&cell);
 				}
 				
-				if(show_glyph_attribute == SHOW_FORCE)
-				{					
-					//glyphs are colored based on velocity direction
+				/*
+				 * Step 2: Compute the attributes values in the given cell grid. 
+				 * Each grid cell displays a glyph which shows the value for the bottom left corner point, where data is measured.
+				 * If #glyphs does not change => no interpolation. Otherwise the data point changes it's position and its value is computed using interpolation
+				 */
+				if( step.x == 1 && step.y == 1)
+				{
+					idx = (j * DIM) + i;
+					
+					density = rho[idx];
+					velocity.x = vx[idx];
+					velocity.y = vy[idx];
+					force.x = fx[idx];
+					force.y = fy[idx];
+				}
+				else
+				{
+					//It is assumed that when the glyph increase in size, they don't exceed more than 4 grid cells from the initial/original/default grid
+					cell_corners_indexing(i, j, &cell_corners_indeces);
+					
+					//interpolate for rho
+					density = bilinear_interpolation(cell_corners_indeces, data_point, rho);
+					//interpolate for vx
+					velocity.x = bilinear_interpolation(cell_corners_indeces, data_point, vx);
+					//interpolate for vy
+					velocity.y = bilinear_interpolation(cell_corners_indeces, data_point, vy);
+					//interpolate for vx
+					force.x = bilinear_interpolation(cell_corners_indeces, data_point, fx);
+					//interpolate for vy
+					force.y = bilinear_interpolation(cell_corners_indeces, data_point, fy);	
+				}
+
+				/*
+				 * Step 3: choose vectorial attribute: velocity, force, gradients
+				 */
+				if(show_glyph_attribute == VELOCITY)
+				{	
+					//Part 1: choose glyphs' color
 					if(color_dir == TRUE)
 					{
-						direction_to_color(fx[idx], fy[idx], 0, GLYPH_TYPE);
+						//glyphs are colored based on velocity direction
+						direction_to_color(velocity, 0, GLYPH_TYPE);
 					}
 					else
 					{
 						//set the glyphs' color based on selected scalar field
-						if(show_matter_attribute == SHOW_DENSITY)
-						{
-							set_colormap(rho[idx]);
-						}
-						else if(show_matter_attribute == SHOW_VELOCITY_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( vx[idx], vy[idx]);
-							magnitude *= V_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
-						else if(show_matter_attribute == SHOW_FORCE_MAGNITUDE)
-						{
-							magnitude = vec_magnitude( fx[idx], fy[idx]);
-							magnitude *= F_SCALE_FACTOR;
-						
-							set_colormap(magnitude);
-						}
+						glyphs_scalar_color(density, velocity, force);
+					}
+				
+					//Part 2: choose glyps' type. Don't overlap with the color legend
+					if(cell_iterator.y >= 2)
+					{ 
+						draw_glyphs(cell, velocity, vec_scale);
+					}
+				}
+				else if(show_glyph_attribute == FORCE)
+				{	
+					//Part1: choose glyps'color				
+					if(color_dir == TRUE)
+					{
+						//glyphs are colored based on force direction
+						direction_to_color(force, 0, GLYPH_TYPE);
+					}
+					else
+					{
+						//set the glyphs' color based on selected scalar field
+						glyphs_scalar_color(density, velocity, force);
 					}
 					
-					if(show_glyph_type == SHOW_HEDGEHOGS)
+					//Part2: choose glyps' type
+					if(cell_iterator.y >= 2)
 					{
-						draw_hedgehog(i, j, fx[idx], fy[idx], wn, hn);
+						draw_glyphs(cell, force, vec_scale);
 					}
-					else if(show_glyph_type == SHOW_CONES)
+				}
+				else if(show_glyph_attribute == DENSITY_GRADIENT && color_dir == FALSE)
+				{
+					//Part 1: compute gradient
+					compute_density_gradient(i, j, step, data_point, rho, &gradient);
+					gradient.x *= 5; gradient.y *= 5;
+					
+					//Part 2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(density, velocity, force);
+					
+					//Part 3: choose glyphs' type
+					if(cell_iterator.y >= 2)
 					{
-						draw_cone(i, j, fx[idx], fy[idx], wn, hn);
+						draw_glyphs(cell, gradient, vec_scale);
 					}
-					else if(show_glyph_type == SHOW_ELLIPSES)
+				}
+				else if(show_glyph_attribute == VEL_MAGN_GRADIENT && color_dir == FALSE)
+				{
+					//Part 1: compute gradient
+					compute_velocity_magnitude_gradient(i, j, step, data_point, vx, vy, &gradient);
+					gradient.x *= 5; gradient.y *= 5;
+					
+					//Part 2: choose glyphs color: set the glyphs' color based on selected scalar field
+					glyphs_scalar_color(density, velocity, force);
+					
+					//Part 3: choose glyphs' type
+					if(cell_iterator.y >= 2)
 					{
-						draw_filled_ellipse(i, j, fx[idx], fy[idx], wn, hn);
+						draw_glyphs(cell, gradient, vec_scale);
 					}
 				}
 			}
-			
-		//draw color legend for glyphs
+		
+		/*
+		 * Step 4: Draw color legend for glyphs
+		 */
 		if(color_dir == TRUE)
 		{
-			draw_glyph_color_legend();
+			draw_glyph_color_legend(winWidth, winHeight);
 		}
 		else
 		{
 			draw_matter_color_legend();
 		}
+	}
+	
+	//draw streamlines
+	if(vis_tech == STREAMLINES)
+	{
+		//variables used to create grid cells and to iterate through them
+		grid_cell cell;
+		//the next 2 are used to fit into cell creating functions pattern
+		vector cell_iterator;
+		vector step;
+		step.x = 1;
+		step.y = 1;
+		//vector coordinates and magnitude in the given cell
+		vector current_point_velocity, next_point_velocity;
+		//clicked point's coordinates within a cell in [0;1]
+		point point_coord_in_cell, prev_point, current_point, next_point;
+		int_coord cell_coord_in_grid;
+		cell_sample_points cell_corners_indeces;
+
+		int k;
+		float norm, streamline_length;  
+		float step_size = 0.5 * hn, max_length = streamline_length_scaling_factor * hn; 
+
+		for (cell_iterator.x = 0; cell_iterator.x < DIM - 0.1; cell_iterator.x += step.x)
+			for (cell_iterator.y = 0; cell_iterator.y < DIM - 0.1; cell_iterator.y += step.y)
+			{
+				/*
+				 * Step 1: initialize cell grid. It's used for positioning glyphs on the visualization window.
+				 */
+				initialize_cell(&cell, wn, hn, cell_iterator, step);
+				
+				//Eventually draw the cell grid
+				if(draw_glyph_grid && cell_iterator.y >= 2)
+				{
+					draw_cell(&cell);
+				}
+				
+				/*
+				 * Step 2: for each selected point in the screen, identify the cell they belong to, draw the point and set color for it.
+				 * Screen's origin is in the top left corner, whereas the cell grid starts from bottom left corner.
+				 */ 
+				for(k = 1; k <= seeds_count; k++)
+				{
+					//Find the cell where a clicked point is.
+					if(cell.x <= seed[k].a && seed[k].a < cell.x + cell.width)
+						if(cell.y - cell.height <= seed[k].b && seed[k].b < cell.y)			//as cell indexing starts from top left corner
+						{
+							//Compute the coordinates of the clicked point in the given cell.
+							//This helps to obtain the offset of the point related to the bottom left corner of the cell.
+							point_coord_in_cell.r = seed[k].a/cell.width;
+							point_coord_in_cell.s = seed[k].b/cell.height;
+							//Get the cell's indeces in the grid
+							cell_coord_in_grid.a = (int) point_coord_in_cell.r;
+							cell_coord_in_grid.b = (int) point_coord_in_cell.s;
+							cell_coord_in_grid.b = DIM - cell_coord_in_grid.b - 1; 
+							//Get fractional part which shows where in the cell was the point clicked. 
+							point_coord_in_cell.r -= cell_coord_in_grid.a;
+							point_coord_in_cell.s -= cell_coord_in_grid.b;
+							
+							//Compute the indeces of the sample points placed at the corners of the cell where the point was clicked
+							cell_corners_indexing(cell_coord_in_grid.a, cell_coord_in_grid.b, &cell_corners_indeces);
+						
+							//printf("%d %d %d %d\n", cell_corners_indeces.idx1, cell_corners_indeces.idx2, cell_corners_indeces.idx3, cell_corners_indeces.idx4);
+						
+							//Get the velocity's value by doing piecewise linear interpolation for the given cell
+							current_point_velocity.x = bilinear_interpolation(cell_corners_indeces, point_coord_in_cell, vx);
+							current_point_velocity.y = bilinear_interpolation(cell_corners_indeces, point_coord_in_cell, vy);
+							
+							//Create the new points in the streamline starting from the current seed point
+							current_point.r = (float) seed[k].a;
+							current_point.s = (float) seed[k].b;
+							
+							//Draw seed points 
+							if(streamline_type == POINTS && cell_iterator.y >= 2)
+							{
+								draw_points(current_point, current_point_velocity, 0);
+							}
+							
+							//printf("%f %f %f %f %f\n", current_point.r, current_point.s, current_point_velocity.x, current_point_velocity.y, vector_normalize(current_point_velocity));
+							
+							if(current_point_velocity.x != 0 || current_point_velocity.y != 0)
+							{
+								for(streamline_length = 0; streamline_length < max_length; streamline_length += step_size)
+								{
+									//Firstly, normalize the vector values at the current point
+									norm = vector_normalize(current_point_velocity);
+									current_point_velocity.x /= norm;
+									current_point_velocity.y /= norm;
+								
+									//Then, compute next point's coordinates using Euclidean integration
+									next_point.r = current_point.r + current_point_velocity.x*step_size;
+									//because on Oy axis the direction should be inverse due to the fact that the coordinates start from top-left corner and sample points from bottom left
+									next_point.s = current_point.s - current_point_velocity.y*step_size;
+									
+									//if the next point is in the cell grid, proceed further
+									if(next_point.r >= 0 && next_point.r <= 50*wn && next_point.s >= hn && next_point.s <= 49*hn)
+									{
+										//the next point becomes the current point so a new point can be generated. Beforehand, the current point becomes the prev point.
+										//It's original coordinates are kept as the current point's coordinates and used for drawing lines
+										prev_point.r = current_point.r;
+										prev_point.s = current_point.s;
+										current_point.r = next_point.r;
+										current_point.s = next_point.s;
+								
+										//Compute the coordinates of the clicked point in the given cell.
+										//This helps to obtain the offset of the point related to the bottom left corner of the cell.
+										next_point.r /= cell.width;
+										next_point.s /= cell.height;
+										//get the integer part that shows the cell's indeces in the grid starting from top left corner
+										cell_coord_in_grid.a = (int) next_point.r;
+										cell_coord_in_grid.b = (int) next_point.s;
+										cell_coord_in_grid.b = DIM - cell_coord_in_grid.b - 1; 
+										//get fractional part which shows where in the cell was the point clicked. 
+										next_point.r -= cell_coord_in_grid.a;
+										next_point.s -= cell_coord_in_grid.b;
+								
+										//Compute the indeces of the sample points placed at the corners of the cell where the point was clicked
+										cell_corners_indexing(cell_coord_in_grid.a, cell_coord_in_grid.b, &cell_corners_indeces);
+									
+										//printf("%d %d %d %d\n", cell_corners_indeces.idx1, cell_corners_indeces.idx2, cell_corners_indeces.idx3, cell_corners_indeces.idx4);
+									
+										//Compute the velocity's value by doing piecewise linear interpolation for the given cell
+										next_point_velocity.x = bilinear_interpolation(cell_corners_indeces, next_point, vx);
+										next_point_velocity.y = bilinear_interpolation(cell_corners_indeces, next_point, vy);
+										
+										current_point_velocity.x = next_point_velocity.x;
+										current_point_velocity.y = next_point_velocity.y;
+
+										if(streamline_type == POINTS)
+										{
+											draw_points(current_point, current_point_velocity, streamline_length);
+										}
+										if(streamline_type == LINES)
+										{
+											draw_lines(prev_point, current_point, current_point_velocity);
+										}
+									}
+								}
+							}
+						}
+				}
+			}
+		draw_matter_color_legend();
 	}
 }
 
@@ -1078,6 +706,7 @@ void reshape(int w, int h)
 	glLoadIdentity();
 	gluOrtho2D(0.0, (GLdouble)w, 0.0, (GLdouble)h);
 	winWidth = w; winHeight = h;
+	
 }
 
 //keyboard: Handle key presses
@@ -1093,24 +722,22 @@ void keyboard(unsigned char key, int x, int y)
 		case 's': vec_scale *= 0.8; break;
 		case 'V': visc *= 5; break;
 		case 'v': visc *= 0.2; break;
-		case 'x':
-			draw_matter = 1 - draw_matter;
-			if (draw_matter == 0) draw_vecs = 1;
-			break;
-		case 'y':
-			draw_vecs = 1 - draw_vecs;
-			if (draw_vecs==0) draw_matter = 1;
+		case 'x': vis_tech++;
+			if (vis_tech > STREAMLINES) 
+			{
+				vis_tech = MATTER;
+			}
 			break;
 		case 'm': matter_color_type++;
-			if (matter_color_type > COLOR_SAT)
+			if (matter_color_type > SATURATION)
 			{
-				matter_color_type = COLOR_BLACKWHITE;
+				matter_color_type = BLACKWHITE;
 			}
 			break;
 		case 'M': glyph_color_type++;
-			if (glyph_color_type > COLOR_SAT)
+			if (glyph_color_type > SATURATION)
 			{
-				glyph_color_type = COLOR_BLACKWHITE;
+				glyph_color_type = BLACKWHITE;
 			}
 			break;
 		case 'b': matter_color_bands *= 2;
@@ -1127,16 +754,16 @@ void keyboard(unsigned char key, int x, int y)
 			break;
 		case 'n':
 			show_matter_attribute++;
-			if (show_matter_attribute > SHOW_FORCE_MAGNITUDE)
+			if (show_matter_attribute > FORCE_MAGNITUDE)
 			{
-				show_matter_attribute = SHOW_DENSITY;
+				show_matter_attribute = DENSITY;
 			}
 			break;
 		case 'N':
 			show_glyph_attribute++;
-			if (show_glyph_attribute > SHOW_FORCE)
+			if (show_glyph_attribute > VEL_MAGN_GRADIENT)
 			{
-				show_glyph_attribute = SHOW_VELOCITY;
+				show_glyph_attribute = VELOCITY;
 			}
 			break;
 		case 'k': matter_scale = 1-matter_scale; 
@@ -1144,8 +771,8 @@ void keyboard(unsigned char key, int x, int y)
 			{
 				matter_clamp = 0;
 				printf("Set smoke color scale interval range\n");
-				printf("Insert lower value and upper value:\n");
-				scanf("%f %f", &matter_scale_lmin, &matter_scale_lmax);
+				//printf("Insert lower value and upper value:\n");
+				//scanf("%f %f", &matter_scale_lmin, &matter_scale_lmax);
 			}
 			break;
 		case 'K': glyph_scale = 1-glyph_scale; 
@@ -1191,56 +818,105 @@ void keyboard(unsigned char key, int x, int y)
 			break;
 		case 'z':
 			show_glyph_type++;
-			if (show_glyph_type > SHOW_ELLIPSES)
+			if (show_glyph_type > ELLIPSES)
 			{
-				show_glyph_type = SHOW_HEDGEHOGS;
+				show_glyph_type = HEDGEHOGS;
 			}
-			break;  
+			break;
+		case 'd': no_glyphs_x -= 5;
+			if(no_glyphs_x == 20)
+			{
+				no_glyphs_x = 50;
+			}
+			break;
+		case 'D': no_glyphs_y -= 5;
+			if(no_glyphs_y == 20)
+			{
+				no_glyphs_y = 50;
+			}
+			break;
+		case 'f': streamline_length_scaling_factor += 5;
+			if(streamline_length_scaling_factor == 30)
+			{
+				streamline_length_scaling_factor = 5;
+			}
+			break;
+		case 'g':
+			streamline_type++;
+			if (streamline_type > LINES)
+			{
+				streamline_type = POINTS;
+			}
+			break;
+		case '`': draw_glyph_grid = 1 - draw_glyph_grid; 
+				break;    
 		case 'q': exit(0);
 	}
 }
 
 // drag: When the user drags with the mouse, add a force that corresponds to the direction of the mouse
-//       cursor movement. Also inject some new matter into the field at the mouse location.
+// cursor movement. Also inject some new matter into the field at the mouse location.
 void drag(int mx, int my)
 {
-	int xi,yi,X,Y;
-	double  dx, dy, len;
-	static int lmx=0,lmy=0;				//remembers last mouse location
-
-	// Compute the array index that corresponds to the cursor location
-	xi = (int)clamp((double)(DIM + 1) * ((double)mx / (double)winWidth));
-	yi = (int)clamp((double)(DIM + 1) * ((double)(winHeight - my) / (double)winHeight));
-
-	X = xi;
-	Y = yi;
-
-	if (X > (DIM - 1))
-		X = DIM - 1;
-	if (Y > (DIM - 1))
-		Y = DIM - 1;
-	if (X < 0)
-		X = 0;
-	if (Y < 0)
-		Y = 0;
-
-	// Add force at the cursor location
-	my = winHeight - my;
-	dx = mx - lmx;
-	dy = my - lmy;
-	len = sqrt(dx * dx + dy * dy);
-	if (len != 0.0)
+	//if(vis_tech != STREAMLINES)
 	{
-		dx *= 0.1 / len;
-		dy *= 0.1 / len;
+		int xi,yi,X,Y;
+		double  dx, dy, len;
+		static int lmx=0,lmy=0;				//remembers last mouse location
+
+		// Compute the array index that corresponds to the cursor location
+		xi = (int)clamp((double)(DIM + 1) * ((double)mx / (double)winWidth));
+		yi = (int)clamp((double)(DIM + 1) * ((double)(winHeight - my) / (double)winHeight));
+
+		X = xi;
+		Y = yi;
+
+		if (X > (DIM - 1))
+			X = DIM - 1;
+		if (Y > (DIM - 1))
+			Y = DIM - 1;
+		if (X < 0)
+			X = 0;
+		if (Y < 0)
+			Y = 0;
+
+		// Add force at the cursor location
+		my = winHeight - my;
+		dx = mx - lmx;
+		dy = my - lmy;
+		len = sqrt(dx * dx + dy * dy);
+		if (len != 0.0)
+		{
+			dx *= 0.1 / len;
+			dy *= 0.1 / len;
+		}
+		fx[Y * DIM + X] += dx;
+		fy[Y * DIM + X] += dy;
+		rho[Y * DIM + X] = 10.0f;
+		lmx = mx;
+		lmy = my;
 	}
-	fx[Y * DIM + X] += dx;
-	fy[Y * DIM + X] += dy;
-	rho[Y * DIM + X] = 10.0f;
-	lmx = mx;
-	lmy = my;
 }
 
+void on_mouse_click(int button, int state, int x, int y)
+{
+	if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN && vis_tech == STREAMLINES) 
+	{ 
+		if(seeds_count < MAX_SEEDS)
+		{
+			//store the x,y value where the click happened
+			seeds_count++;
+			seed[seeds_count].a = x;
+			seed[seeds_count].b = y;
+		
+			//printf("on_mouse_click: %d %d %d %d %d \n", seeds_count, seed[seeds_count].a, seed[seeds_count].b, x, y);
+		}
+		else
+		{
+			seeds_count = 0;
+		}
+	}
+}
 
 //main: The main program
 int main(int argc, char **argv)
@@ -1252,22 +928,19 @@ int main(int argc, char **argv)
 	printf("c:     toggle direction coloring on/off\n");
 	printf("S/s:   increase/decrease glyph scaling\n");
 	printf("V/v:   increase decrease fluid viscosity\n");
-	printf("x:     toggle drawing smoke on/off\n");
-	printf("y:     toggle drawing glyphs on/off\n");
+	printf("x:     toggle thru visualization techniques: matter/glyphs/streamlines\n");
 	printf("a:     toggle the animation on/off\n");
-	printf("m:     toggle thru scalar coloring\n");
-	printf("M:     toggle thru glyphs coloring (only when direction coloring is on)\n");
-	printf("n:     toggle thru scalar shown attributes (density, velocity magnitude, force magnitude) \n");
-	printf("N:     toggle thru vector shown attributes (velocity, force)\n");
-	printf("b:     change color bands for smoke: 2->256\n");
-	printf("B:     change color bands for glyphs: 2->256 (only when direction coloring is on)\n");
-	printf("j:     toggle the smoke color map clamping on/off\n");
-	printf("J:     toggle the glyph color map clamping on/off\n");
-	printf("k:     toggle the smoke color map scaling on/off\n");
-	printf("K:     toggle the glyph color map scaling on/off\n");
-	printf("l:     toggle the smoke hsv coloring on/off\n");
-	printf("L:     toggle the glyph hsv coloring on/off\n");
+	printf("m/M:   toggle thru coloring of matter/direction (only when direction coloring is on)\n");
+	printf("b/B:   change color bands for smoke/ glyphs (only when direction coloring is on):2->256\n");
+	printf("n:     toggle thru scalar attributes (density, velocity magnitude, force magnitude) \n");
+	printf("N:     toggle thru vector attributes (velocity, force, rho gradient, vel magnitude gradient)\n");
+	printf("j/J:   toggle the colormap clamping on/off for matter/direction (only when direction coloring is on)\n");
+	printf("k/K:   toggle the colormap scaling on/off for matter/direction (only when direction coloring is on)\n");
+	printf("l/L:   toggle the hsv coloring on/off for matter/direction (only when direction coloring is on)\n");
 	printf("z:     toggle thru glyphs types\n");
+	printf("d/D:   toggle thru glyphs number on x/y axis\n");
+	printf("f:     change streamline's length\n");
+	printf("g:     toggle thru streamlines' rendering type\n");
 	printf("q:     quit\n\n");
 
 	glutInit(&argc, argv);
@@ -1278,8 +951,9 @@ int main(int argc, char **argv)
 	glutReshapeFunc(reshape);
 	glutIdleFunc(do_one_simulation_step);
 	glutKeyboardFunc(keyboard);
+	glutMouseFunc(on_mouse_click);
 	glutMotionFunc(drag);
-
+	
 	init_simulation(DIM);	//initialize the simulation data structures
 	glutMainLoop();			//calls do_one_simulation_step, keyboard, display, drag, reshape
 	return 0;
